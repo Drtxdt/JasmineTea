@@ -1,111 +1,106 @@
-# JasmineTea MCP
+# JasmineTea
 
-Python 3.11+ 的 EduCoder / Gitea 协作 MCP，提供标准 stdio 服务，面向 Codex、DeepSeek Harness 和 Claude Code。
+让 AI 帮你使用 EduCoder 上的 Git 仓库。读代码、看提交、处理 Issue 和 PR，都可以直接在聊天里完成。
 
-默认连接 `https://bdgit.educoder.net`，可以通过 TOML 改为其他 Gitea 实例。仓库使用 `owner/name` 标识，不绑定课程或测试仓库。
+我们课程用的是 `bdgit.educoder.net`，它实际使用的是 Gitea。JasmineTea 就是给它写的一个 MCP，也可以连接其他 Gitea 平台。
 
-## 安装与启动
+## 快速开始
 
-开发安装：
+你需要 Python 3.11 或更新版本、Git，以及一个支持本地 MCP 的客户端。目前提供了 Codex、DeepSeek Harness 和 Claude Code 的配置示例。
+
+**目前还没有发布到 PyPI，请先从源码安装。**
+
+如果你不熟悉终端，可以把下面这句话交给你的 Agent：
+
+> 请阅读 https://github.com/Drtxdt/JasmineTea/blob/main/docs/agent-install.md ，帮我安装 JasmineTea 并接入当前客户端，默认只读。Token 由我在本机填写，不要索取或输出它。
+
+也可以自己来。下面以 Windows 和 Codex 为例，在 PowerShell 中运行：
 
 ```powershell
+git clone https://github.com/Drtxdt/JasmineTea.git
+cd JasmineTea
 python -m venv .venv
-.\.venv\Scripts\python.exe -m pip install -e ".[dev]"
-$env:BDGIT_TOKEN = "你的个人Token"
-.\.venv\Scripts\jasminetea-mcp.exe doctor --repo hndx202426010302/JasmineTea-test
-.\.venv\Scripts\jasminetea-mcp.exe serve
+.\.venv\Scripts\python.exe -m pip install .
 ```
 
-也可在启动目录或选定配置的目录建立 `.env`，仅保存 `BDGIT_TOKEN=...`。非空环境变量优先，客户端转发空变量时可以使用本地文件。只提取当前配置指定的 Token 变量；示例 Token 不会被接受。不要把 `.env` 提交或放入客户端配置。文件已被忽略，源码与发布包不包含 Token。
+接下来，把配置放在你自己的用户目录中。第一次安装时运行：
 
-`examples/readonly.toml` 默认只读。`examples/test-repository.toml` 仅开启 `hndx202426010302/JasmineTea-test` 的写入：
+```powershell
+$teaDir = Join-Path $env:USERPROFILE ".config\jasminetea"
+New-Item -ItemType Directory -Force $teaDir | Out-Null
+if (-not (Test-Path "$teaDir\config.toml")) {
+    Copy-Item examples\readonly.toml "$teaDir\config.toml"
+}
+```
+
+登录 bdgit，在个人设置中的“应用”页面生成自己的 Token。用文本编辑器在 `$teaDir` 对应目录创建 `.env` 文件，填写：
+
+```dotenv
+BDGIT_TOKEN=你自己的Token
+```
+
+配置和 `.env` 放在同一个文件夹，之后换个项目打开 Codex 也能找到它。不要把 Token 发到聊天里，每位同学都用自己的 Token。
+
+先检查连接，把下面的仓库名换成你有权限访问的仓库：
+
+```powershell
+.\.venv\Scripts\python.exe -m jasminetea_mcp doctor --config "$teaDir\config.toml" --repo hndx202426010302/JasmineTea-test
+.\.venv\Scripts\python.exe -m jasminetea_mcp config-example --client codex --config "$teaDir\config.toml"
+```
+
+第一条命令最后显示 `"ok": true`，说明连接检查通过。第二条会输出 Codex 配置，把它合并到 `~/.codex/config.toml`，保留你原来的其他配置。不要重复添加同名的 `[mcp_servers.jasminetea]`。
+
+重新打开 Codex 聊天，然后试着说：
+
+> 使用 jasminetea 查看我的课程仓库，读取默认分支的 README，再看看最近几次提交。先不要修改代码。
+
+你不需要另外开一个终端一直运行服务，客户端会启动它。Linux、DeepSeek Harness 和 Claude Code 的步骤见[安装文档](docs/agent-install.md)。
+
+## 能做什么
+
+目前可以读取仓库文件和提交、搜索代码、比较分支，也可以处理 Issue、评论、标签、PR、审查与合并。
+
+**默认只读。** 如果你确实需要 AI 修改某个仓库，在自己的 `config.toml` 中添加它：
 
 ```toml
 base_url = "https://bdgit.educoder.net"
 token_env = "BDGIT_TOKEN"
-write_repositories = ["hndx202426010302/JasmineTea-test"]
+write_repositories = ["你的用户名/你的仓库名"]
 ```
 
-Token 使用 `Authorization: token ...`。每位成员使用自己的凭据；账户仍需拥有平台对应权限。API 与 Git 的所有写入口都会核对可写名单，工具调用无法修改该名单。
+只有名单里的仓库允许写入，你的账号也必须有对应权限。其他 Gitea 平台可以修改 `base_url`，仓库名仍然使用 `owner/name`。
 
-## 能力
+平台没有的功能，我们也没法凭空变出来。例如当前 bdgit 没有公开 Actions、PR 草稿和审查线程解决状态的接口，会话锁定也缺少必要字段。这些操作会明确说明不支持。
 
-- 用户、仓库、组织和团队信息；仓库权限、目录、文本文件、Blob、提交、分支和状态。
-- Issue、评论、标签、负责人、Reaction；PR、差异、变更文件、审查、审查请求、合并和原生自动合并。
-- Git 补充代码搜索、提交搜索、提交比较、Git 对象创建、多文件原子提交及带 SHA lease 的分支更新。
-- `get_capabilities` 对照当前 GitHub 连接器的 89 项能力，并核对实例 Swagger 的端点和字段。
+完整列表见[能力对照](docs/capabilities.md)。其中部分能力按 Gitea 的方式实现，不保证和 GitHub 完全相同。我们已在测试仓库跑通过提交、Issue、PR、审查和合并，但还没有把每个 API 都逐项实测，三个客户端的实际联调也还要继续补。具体见[验证记录](docs/validation.md)。
 
-工具结果包含分页或截断提示。`read_file` 支持行范围、拒绝二进制；Diff 文本默认最多 512 KiB。HTTP 响应默认最多 16 MiB，发给模型的单个工具结果默认最多 1 MiB。目录也在服务端切页。分页默认 50 条，上限 100 条，使用 `next_page` 继续；超限时缩小页、路径或行范围。
+## 原理
 
-完整对照见 [能力矩阵](docs/capabilities.md)。当前 bdgit 没有公开 Actions、GitHub App 安装、原生草稿生命周期和 resolved-review-thread API。会话锁定缺少 `is_locked` 写字段，也会返回明确的 `unsupported`。部分工具按 Gitea 语义实现，差异在工具说明和矩阵中列出。
+原理很简单。客户端启动你本机上的 Python 程序，AI 调用工具，程序再拿你的 Token 去请求 Gitea 的 API，最后把结果返回给 AI。
 
-“available”表示 API 定义或本地实现具备能力，不代表你的 Token 已通过真实调用验证。`doctor` 返回鉴权、仓库权限、Git 连通性及能力报告。
+一些 API 不方便完成的操作，比如代码搜索和多文件提交，会交给 Git。它在本机缓存一个 bare 仓库，不运行仓库里的代码。
 
-## Git 后端
+所以你不需要 VPS，也不需要把服务开放到公网。但它需要联网访问 Git 平台，AI 读取到的内容也会交给你使用的模型处理。
 
-需要系统 Git。服务使用用户缓存目录中的隔离 bare 仓库，不 checkout、不运行仓库代码或 hooks，也不提供任意命令工具。可用 `cache_dir` 更改缓存位置。多个进程通过文件锁串行访问同一缓存。
+文件更新、分支 SHA、缓存和错误处理的说明放在[技术说明](docs/technical.md)，需要时再看即可。
 
-Git 凭据通过进程环境传入，不写入远端 URL、命令参数或仓库配置。缓存按平台、仓库与凭据隔离。Git 的错误输出不会直接交给模型。
+## 计划
 
-`create_blob` / `create_tree` / `create_commit` 创建的是本地对象，可用返回 SHA 继续构建；`update_ref` 才发布可达提交。这与 GitHub 在服务器存储对象不同。`update_ref` 和 `commit_files` 必须提供当前分支的完整 `expected_sha`，使用原子 lease，并拒绝非 fast-forward 更新。
+- 完成 Codex、DeepSeek Harness 和 Claude Code 的实际联调。
+- 补齐更多 Gitea API 的真实测试，继续记录各个平台的差异。
+- 发布到 PyPI，让安装更省事。
+- 后续再考虑远程服务和 ChatGPT 网页接入。
 
-文件 API 的 `update_file` / `delete_file` 要求当前 **Blob SHA**，不是分支 SHA。多文件提交使用分支 SHA，可避免单文件 API 之间的中间状态。
+## 贡献
 
-只读请求可有限重试；写请求不自动重试。`result_uncertain=true` 表示远端结果不确定，应先查询分支/对象状态再决定下一步。
+如果你发现了问题，或者你的学校也用了 Gitea，欢迎提出 Issue。记得说明平台和报错信息，不要附上 Token。
 
-## 客户端
+想改代码的话，可以 Fork 后提交 Pull Request。开发环境和检查命令见[技术说明](docs/technical.md#开发与打包)。本项目使用 [MIT](LICENSE) 许可证。
 
-生成与你当前 Python 安装对应的配置；输出不含实际 Token：
+## 一点碎碎念
 
-```powershell
-jasminetea-mcp config-example --client codex --config examples/readonly.toml
-jasminetea-mcp config-example --client deepseek --config examples/readonly.toml
-jasminetea-mcp config-example --client claude --config examples/readonly.toml
-```
+做这个的起因是课程项目。代码放在老师的平台上，和 AI 讨论问题时还要来回复制文件，组员的提交、Issue 和 PR 也不太方便一起看。
 
-### Codex
+既然 bdgit 用的是 Gitea，我们就试着把它接到平时用的 AI 工具里，也希望能帮到使用其他 Gitea 平台的同学。
 
-将生成的 TOML 合并到现有 MCP 配置，保留其他配置。`env_vars = ["BDGIT_TOKEN"]` 转发启动 Codex 时的本地变量。也可注册当前 Python：
-
-```powershell
-codex mcp add jasminetea -- python -m jasminetea_mcp serve --config E:\my_code\JasmineTea\examples\readonly.toml
-```
-
-之后在对应服务器配置中添加 `env_vars`。Python 必须是已经安装本包的解释器，推荐使用生成示例中的绝对路径。
-
-### DeepSeek Harness
-
-将生成的 Cordis overlay 保存后使用 `dsh web --no-open --patch <配置路径>`，或合并到已有 patch。使用 `@deepseek-ai/dsh-mcp-client`，显式从 `process.env.BDGIT_TOKEN` 转发凭据；凭据值不写入 YAML。等待工具发现完成再调用。
-
-### Claude Code
-
-将生成的 JSON 合并到 MCP 配置，`${BDGIT_TOKEN:-}` 引用启动环境的变量，缺失时让服务读取本地 `.env`。也可使用：
-
-```powershell
-claude mcp add --transport stdio jasminetea -- python -m jasminetea_mcp serve --config E:\my_code\JasmineTea\examples\readonly.toml
-```
-
-同样使用安装本包的 Python；通过继承的环境或本地 `.env` 提供凭据。
-
-## 测试与打包
-
-```powershell
-python -m pytest
-python -m ruff check src tests
-python -m build --no-isolation
-python -m twine check dist/*
-```
-
-自动测试包括 API 合同与分页、全部写入口的权限检查、网络错误及不确定结果、真实本地 bare Git 的并发 lease / 多文件提交 / 中文路径 / 二进制 / Diff，以及 MCP 新旧协议调用。Windows 与 Linux 的 CI 配置位于 `.github/workflows/tests.yml`。
-
-真实平台验收使用 `scripts/live_acceptance.py`，只在专用测试仓库创建 `jasminetea-test/` 前缀的分支和带标识的 Issue/PR，并写入清理记录。需要个人 Token，真实验证情况见 [验证记录](docs/validation.md)。本地 mock、平台实时联调和三个客户端的模型调用分别记录，不能互相替代。
-
-包名 `jasminetea-mcp` 在规划时尚未占用，正式发布前重新检查。构建 wheel/sdist 和本地安装验证后，再通过 TestPyPI 验证，最终上传 PyPI；当前实现不自动上传。
-
-## 接口依据
-
-- [bdgit 实例 Swagger](https://bdgit.educoder.net/swagger.v1.json)
-- [MCP Python SDK](https://py.sdk.modelcontextprotocol.io/)
-- [Codex MCP 配置](https://learn.chatgpt.com/docs/extend/mcp#stdio-servers)
-- [DeepSeek MCP 接入](https://deepseek-harness.github.io/deepseek-harness/en/guide/mcp-memory)
-- [Claude Code MCP](https://code.claude.com/docs/en/mcp)
+如果这个项目帮到了你，欢迎点亮一个 Star，也欢迎告诉我们哪里还不好用。
