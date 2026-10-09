@@ -1,0 +1,536 @@
+[
+  {
+    "reference": "add_comment_to_issue",
+    "backend": "api",
+    "tool": "add_comment_to_issue",
+    "notes": "Native Gitea REST operation; explicit pagination and platform permissions apply."
+  },
+  {
+    "reference": "add_issue_assignees",
+    "backend": "mapped",
+    "tool": "add_issue_assignees",
+    "notes": "Read/merge/PATCH; Gitea has no atomic assignee add API."
+  },
+  {
+    "reference": "add_issue_labels",
+    "backend": "api",
+    "tool": "add_issue_labels",
+    "notes": "Native Gitea REST operation; explicit pagination and platform permissions apply."
+  },
+  {
+    "reference": "add_reaction_to_issue_comment",
+    "backend": "api",
+    "tool": "add_reaction_to_issue_comment",
+    "notes": "Native Gitea REST operation; explicit pagination and platform permissions apply."
+  },
+  {
+    "reference": "add_reaction_to_pr",
+    "backend": "api",
+    "tool": "add_reaction_to_pr",
+    "notes": "Native Gitea REST operation; explicit pagination and platform permissions apply."
+  },
+  {
+    "reference": "add_reaction_to_pr_review_comment",
+    "backend": "mapped",
+    "tool": "add_reaction_to_issue_comment",
+    "notes": "Uses native comment IDs; subtype permissions are enforced by the platform."
+  },
+  {
+    "reference": "add_review_to_pr",
+    "backend": "api",
+    "tool": "add_review_to_pr",
+    "notes": "Native Gitea REST operation; explicit pagination and platform permissions apply."
+  },
+  {
+    "reference": "compare_commits",
+    "backend": "git",
+    "tool": "compare_commits",
+    "notes": "Resolved SHAs, bounded diff and per-file stats."
+  },
+  {
+    "reference": "convert_pull_request_to_draft",
+    "backend": "unsupported",
+    "tool": null,
+    "notes": "No native draft lifecycle API; editing WIP titles is not presented as an equivalent draft operation."
+  },
+  {
+    "reference": "create_blob",
+    "backend": "git",
+    "tool": "create_blob",
+    "notes": "Objects live in the isolated local bare cache until update_ref publishes a reachable commit."
+  },
+  {
+    "reference": "create_branch",
+    "backend": "api",
+    "tool": "create_branch",
+    "notes": "Native Gitea REST operation; explicit pagination and platform permissions apply."
+  },
+  {
+    "reference": "create_commit",
+    "backend": "git",
+    "tool": "create_commit",
+    "notes": "Explicit author identity; local until published."
+  },
+  {
+    "reference": "create_file",
+    "backend": "api",
+    "tool": "create_file",
+    "notes": "Native Gitea REST operation; explicit pagination and platform permissions apply."
+  },
+  {
+    "reference": "create_issue",
+    "backend": "api",
+    "tool": "create_issue",
+    "notes": "Native Gitea REST operation; explicit pagination and platform permissions apply."
+  },
+  {
+    "reference": "create_pull_request",
+    "backend": "api",
+    "tool": "create_pull_request",
+    "notes": "Native Gitea REST operation; explicit pagination and platform permissions apply."
+  },
+  {
+    "reference": "create_tree",
+    "backend": "git",
+    "tool": "create_tree",
+    "notes": "Builds local trees; supports blobs, symlinks, executable modes and submodule entries."
+  },
+  {
+    "reference": "delete_file",
+    "backend": "api",
+    "tool": "delete_file",
+    "notes": "Native Gitea REST operation; explicit pagination and platform permissions apply."
+  },
+  {
+    "reference": "dismiss_pull_request_review",
+    "backend": "api",
+    "tool": "dismiss_pull_request_review",
+    "notes": "Native Gitea REST operation; explicit pagination and platform permissions apply."
+  },
+  {
+    "reference": "download_user_content",
+    "backend": "unsupported",
+    "tool": null,
+    "notes": "GitHub private-user-images CDN authentication has no equivalent in this instance API."
+  },
+  {
+    "reference": "download_workflow_artifact",
+    "backend": "unsupported",
+    "tool": null,
+    "notes": "The recorded bdgit API exposes no Actions workflow/artifact endpoints."
+  },
+  {
+    "reference": "enable_auto_merge",
+    "backend": "api",
+    "tool": "enable_auto_merge",
+    "notes": "Native Gitea REST operation; explicit pagination and platform permissions apply."
+  },
+  {
+    "reference": "fetch",
+    "backend": "api",
+    "tool": "fetch",
+    "notes": "Native Gitea REST operation; explicit pagination and platform permissions apply."
+  },
+  {
+    "reference": "fetch_blob",
+    "backend": "api",
+    "tool": "fetch_blob",
+    "notes": "Native Gitea REST operation; explicit pagination and platform permissions apply."
+  },
+  {
+    "reference": "fetch_commit",
+    "backend": "api",
+    "tool": "fetch_commit",
+    "notes": "Native Gitea REST operation; explicit pagination and platform permissions apply."
+  },
+  {
+    "reference": "fetch_commit_workflow_runs",
+    "backend": "unsupported",
+    "tool": null,
+    "notes": "The recorded bdgit API exposes no Actions workflow endpoints."
+  },
+  {
+    "reference": "fetch_file",
+    "backend": "mapped",
+    "tool": "read_file",
+    "notes": "Bounded UTF-8 text and line ranges; binary files explicitly rejected."
+  },
+  {
+    "reference": "fetch_issue",
+    "backend": "api",
+    "tool": "fetch_issue",
+    "notes": "Native Gitea REST operation; explicit pagination and platform permissions apply."
+  },
+  {
+    "reference": "fetch_issue_comments",
+    "backend": "api",
+    "tool": "fetch_issue_comments",
+    "notes": "Native Gitea REST operation; explicit pagination and platform permissions apply."
+  },
+  {
+    "reference": "fetch_pr",
+    "backend": "api",
+    "tool": "fetch_pr",
+    "notes": "Native Gitea REST operation; explicit pagination and platform permissions apply."
+  },
+  {
+    "reference": "fetch_pr_comments",
+    "backend": "api",
+    "tool": "fetch_pr_comments",
+    "notes": "Native Gitea REST operation; explicit pagination and platform permissions apply."
+  },
+  {
+    "reference": "fetch_pr_file_patch",
+    "backend": "git",
+    "tool": "fetch_pr_file_patch",
+    "notes": "Resolved base/head comparison with a validated file path."
+  },
+  {
+    "reference": "fetch_pr_patch",
+    "backend": "mapped",
+    "tool": "get_pr_diff",
+    "notes": "Use format=patch for the native PR patch."
+  },
+  {
+    "reference": "fetch_workflow_job_logs",
+    "backend": "unsupported",
+    "tool": null,
+    "notes": "The recorded bdgit API exposes no Actions job/log endpoints."
+  },
+  {
+    "reference": "fetch_workflow_job_steps",
+    "backend": "unsupported",
+    "tool": null,
+    "notes": "The recorded bdgit API exposes no Actions job/step endpoints."
+  },
+  {
+    "reference": "fetch_workflow_run_artifacts",
+    "backend": "unsupported",
+    "tool": null,
+    "notes": "The recorded bdgit API exposes no Actions artifact endpoints."
+  },
+  {
+    "reference": "fetch_workflow_run_jobs",
+    "backend": "unsupported",
+    "tool": null,
+    "notes": "The recorded bdgit API exposes no Actions job endpoints."
+  },
+  {
+    "reference": "get_commit_combined_status",
+    "backend": "api",
+    "tool": "get_commit_combined_status",
+    "notes": "Native Gitea REST operation; explicit pagination and platform permissions apply."
+  },
+  {
+    "reference": "get_issue_comment_reactions",
+    "backend": "api",
+    "tool": "get_issue_comment_reactions",
+    "notes": "Native Gitea REST operation; explicit pagination and platform permissions apply."
+  },
+  {
+    "reference": "get_pr_diff",
+    "backend": "api",
+    "tool": "get_pr_diff",
+    "notes": "Native Gitea REST operation; explicit pagination and platform permissions apply."
+  },
+  {
+    "reference": "get_pr_info",
+    "backend": "mapped",
+    "tool": "fetch_pr",
+    "notes": "PR metadata is separate from diff retrieval."
+  },
+  {
+    "reference": "get_pr_reactions",
+    "backend": "api",
+    "tool": "get_pr_reactions",
+    "notes": "Native Gitea REST operation; explicit pagination and platform permissions apply."
+  },
+  {
+    "reference": "get_pr_review_comment_reactions",
+    "backend": "mapped",
+    "tool": "get_issue_comment_reactions",
+    "notes": "Uses native comment IDs; subtype permissions are enforced by the platform."
+  },
+  {
+    "reference": "get_profile",
+    "backend": "api",
+    "tool": "get_profile",
+    "notes": "Native Gitea REST operation; explicit pagination and platform permissions apply."
+  },
+  {
+    "reference": "get_repo",
+    "backend": "api",
+    "tool": "get_repo",
+    "notes": "Native Gitea REST operation; explicit pagination and platform permissions apply."
+  },
+  {
+    "reference": "get_repo_collaborator_permission",
+    "backend": "api",
+    "tool": "get_repo_collaborator_permission",
+    "notes": "Native Gitea REST operation; explicit pagination and platform permissions apply."
+  },
+  {
+    "reference": "get_user_login",
+    "backend": "mapped",
+    "tool": "get_profile",
+    "notes": "Read the login field of the authenticated profile."
+  },
+  {
+    "reference": "get_users_recent_prs_in_repo",
+    "backend": "api",
+    "tool": "get_users_recent_prs_in_repo",
+    "notes": "Native Gitea REST operation; explicit pagination and platform permissions apply."
+  },
+  {
+    "reference": "label_pr",
+    "backend": "mapped",
+    "tool": "add_issue_labels",
+    "notes": "Gitea labels are addressed by existing numeric IDs."
+  },
+  {
+    "reference": "list_installations",
+    "backend": "unsupported",
+    "tool": null,
+    "notes": "GitHub App installations do not exist in personal-token Gitea authentication."
+  },
+  {
+    "reference": "list_installed_accounts",
+    "backend": "unsupported",
+    "tool": null,
+    "notes": "GitHub App installed accounts do not exist in personal-token Gitea authentication."
+  },
+  {
+    "reference": "list_pr_changed_filenames",
+    "backend": "api",
+    "tool": "list_pr_changed_filenames",
+    "notes": "Native Gitea REST operation; explicit pagination and platform permissions apply."
+  },
+  {
+    "reference": "list_pull_request_review_threads",
+    "backend": "mapped",
+    "tool": "list_review_comments",
+    "notes": "Read inline review comments; resolved-thread state is not available."
+  },
+  {
+    "reference": "list_pull_request_reviews",
+    "backend": "api",
+    "tool": "list_pull_request_reviews",
+    "notes": "Native Gitea REST operation; explicit pagination and platform permissions apply."
+  },
+  {
+    "reference": "list_recent_issues",
+    "backend": "api",
+    "tool": "list_recent_issues",
+    "notes": "Native Gitea REST operation; explicit pagination and platform permissions apply."
+  },
+  {
+    "reference": "list_repositories",
+    "backend": "api",
+    "tool": "list_repositories",
+    "notes": "Native Gitea REST operation; explicit pagination and platform permissions apply."
+  },
+  {
+    "reference": "list_repositories_by_affiliation",
+    "backend": "api",
+    "tool": "list_repositories_by_affiliation",
+    "notes": "Native Gitea REST operation; explicit pagination and platform permissions apply."
+  },
+  {
+    "reference": "list_repositories_by_installation",
+    "backend": "mapped",
+    "tool": "list_repositories",
+    "notes": "Token-scoped accessible repositories; no installation selector."
+  },
+  {
+    "reference": "list_user_org_memberships",
+    "backend": "mapped",
+    "tool": "list_user_teams",
+    "notes": "Team memberships include organization/permission data; GitHub membership states are absent."
+  },
+  {
+    "reference": "list_user_orgs",
+    "backend": "api",
+    "tool": "list_user_orgs",
+    "notes": "Native Gitea REST operation; explicit pagination and platform permissions apply."
+  },
+  {
+    "reference": "lock_issue_conversation",
+    "backend": "mapped",
+    "tool": "lock_issue_conversation",
+    "notes": "Available only if the live API advertises an is_locked mutation field; absent on the recorded bdgit schema."
+  },
+  {
+    "reference": "mark_pull_request_ready_for_review",
+    "backend": "unsupported",
+    "tool": null,
+    "notes": "No native draft lifecycle API."
+  },
+  {
+    "reference": "merge_pull_request",
+    "backend": "api",
+    "tool": "merge_pull_request",
+    "notes": "Native Gitea REST operation; explicit pagination and platform permissions apply."
+  },
+  {
+    "reference": "remove_issue_assignees",
+    "backend": "mapped",
+    "tool": "remove_issue_assignees",
+    "notes": "Read/filter/PATCH; concurrent assignee-set changes can race."
+  },
+  {
+    "reference": "remove_issue_label",
+    "backend": "api",
+    "tool": "remove_issue_label",
+    "notes": "Native Gitea REST operation; explicit pagination and platform permissions apply."
+  },
+  {
+    "reference": "remove_pull_request_reviewers",
+    "backend": "api",
+    "tool": "remove_pull_request_reviewers",
+    "notes": "Native Gitea REST operation; explicit pagination and platform permissions apply."
+  },
+  {
+    "reference": "remove_reaction_from_issue_comment",
+    "backend": "api",
+    "tool": "remove_reaction_from_issue_comment",
+    "notes": "Native Gitea REST operation; explicit pagination and platform permissions apply."
+  },
+  {
+    "reference": "remove_reaction_from_pr",
+    "backend": "api",
+    "tool": "remove_reaction_from_pr",
+    "notes": "Native Gitea REST operation; explicit pagination and platform permissions apply."
+  },
+  {
+    "reference": "remove_reaction_from_pr_review_comment",
+    "backend": "mapped",
+    "tool": "remove_reaction_from_issue_comment",
+    "notes": "Uses native comment IDs; subtype permissions are enforced by the platform."
+  },
+  {
+    "reference": "reply_to_review_comment",
+    "backend": "unsupported",
+    "tool": null,
+    "notes": "No native inline-review reply API is advertised."
+  },
+  {
+    "reference": "request_pull_request_reviewers",
+    "backend": "api",
+    "tool": "request_pull_request_reviewers",
+    "notes": "Native Gitea REST operation; explicit pagination and platform permissions apply."
+  },
+  {
+    "reference": "rerun_failed_workflow_run_jobs",
+    "backend": "unsupported",
+    "tool": null,
+    "notes": "The recorded bdgit API exposes no Actions retry endpoints."
+  },
+  {
+    "reference": "rerun_workflow_job",
+    "backend": "unsupported",
+    "tool": null,
+    "notes": "The recorded bdgit API exposes no Actions retry endpoints."
+  },
+  {
+    "reference": "resolve_review_thread",
+    "backend": "unsupported",
+    "tool": null,
+    "notes": "No native resolved-review-thread mutation API is advertised."
+  },
+  {
+    "reference": "search",
+    "backend": "git",
+    "tool": "search",
+    "notes": "Literal case-sensitive search within one repository/ref, not global indexed GitHub search."
+  },
+  {
+    "reference": "search_branches",
+    "backend": "api",
+    "tool": "search_branches",
+    "notes": "Native Gitea REST operation; explicit pagination and platform permissions apply."
+  },
+  {
+    "reference": "search_commits",
+    "backend": "git",
+    "tool": "search_commits",
+    "notes": "Literal commit-message search within one repository/ref."
+  },
+  {
+    "reference": "search_installed_repositories_streaming",
+    "backend": "mapped",
+    "tool": "search_repositories",
+    "notes": "Paginated Gitea search; no streaming installation search."
+  },
+  {
+    "reference": "search_installed_repositories_v2",
+    "backend": "mapped",
+    "tool": "search_repositories",
+    "notes": "Token-scoped native Gitea repository search."
+  },
+  {
+    "reference": "search_issues",
+    "backend": "api",
+    "tool": "search_issues",
+    "notes": "Native Gitea REST operation; explicit pagination and platform permissions apply."
+  },
+  {
+    "reference": "search_prs",
+    "backend": "api",
+    "tool": "search_prs",
+    "notes": "Native Gitea REST operation; explicit pagination and platform permissions apply."
+  },
+  {
+    "reference": "search_repositories",
+    "backend": "api",
+    "tool": "search_repositories",
+    "notes": "Native Gitea REST operation; explicit pagination and platform permissions apply."
+  },
+  {
+    "reference": "unlock_issue_conversation",
+    "backend": "mapped",
+    "tool": "unlock_issue_conversation",
+    "notes": "Available only if the live API advertises an is_locked mutation field; absent on the recorded bdgit schema."
+  },
+  {
+    "reference": "unresolve_review_thread",
+    "backend": "unsupported",
+    "tool": null,
+    "notes": "No native resolved-review-thread mutation API is advertised."
+  },
+  {
+    "reference": "update_file",
+    "backend": "api",
+    "tool": "update_file",
+    "notes": "Native Gitea REST operation; explicit pagination and platform permissions apply."
+  },
+  {
+    "reference": "update_issue",
+    "backend": "api",
+    "tool": "update_issue",
+    "notes": "Native Gitea REST operation; explicit pagination and platform permissions apply."
+  },
+  {
+    "reference": "update_issue_comment",
+    "backend": "api",
+    "tool": "update_issue_comment",
+    "notes": "Native Gitea REST operation; explicit pagination and platform permissions apply."
+  },
+  {
+    "reference": "update_pull_request",
+    "backend": "api",
+    "tool": "update_pull_request",
+    "notes": "Native Gitea REST operation; explicit pagination and platform permissions apply."
+  },
+  {
+    "reference": "update_ref",
+    "backend": "git",
+    "tool": "update_ref",
+    "notes": "Atomic expected-SHA lease; fast-forward only."
+  },
+  {
+    "reference": "update_review_comment",
+    "backend": "unsupported",
+    "tool": null,
+    "notes": "No native inline-review edit API is advertised."
+  }
+]
