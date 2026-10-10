@@ -7,7 +7,9 @@
 - Windows Python 3.13.1 / Git 2.45.1：97 项自动测试、Ruff 通过。覆盖空文本、query 契约、缓存恢复、流式搜索及回收、登录身份、两种协议的工具注册、分叉历史、真实远端保护拒绝、写入超时和 HTTP/Git 代理开关及 NO_PROXY。
 - 专用 bdgit 闭环通过：标识 `79cf37d74f6e`，Issue #7 关闭，PR #8 合并，两条临时分支删除；本地记录 `artifacts/live-79cf37d74f6e.json`。未改动原默认分支。
 - 标准 stdio 真实平台调用通过：68 个工具、读取、受控 Issue 写入、越权拒绝、清理；Issue #9 关闭，记录 `artifacts/live-stdio.json`。
-- Windows/Linux × Python 3.11/3.13 和新增 Git 2.34.1 CI 的最终结果待推送后核对。
+- 提交 `5ae10de` 的五组 CI 全部成功：Windows/Linux × Python 3.11/3.13 的 97 项测试、Ruff、构建、Twine、干净环境 wheel/stdio；Linux Git 2.34.1 本地测试子集通过。[0.2 CI](https://github.com/Drtxdt/JasmineTea/actions/runs/38051057604)
+- 本地 wheel/sdist、Twine 和独立虚拟环境安装通过；安装版本 0.2.0，包路径检查及两项 stdio 协议测试通过。待提交文件无真实凭据，文档本地链接有效，包不包含私有配置。
+- 仓库简介和 topics 未修改：现有 GitHub 连接器无设置接口，浏览器 GitHub 未登录。SSH 推送权限已验证，不代表拥有 API 设置凭据。
 - 下面保留 0.1 的历史验证记录，不能代替本轮结果。
 
 ## 已验证
