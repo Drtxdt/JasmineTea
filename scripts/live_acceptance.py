@@ -42,15 +42,13 @@ async def run(config: str):
         artifact.write_text(json.dumps(ledger, ensure_ascii=False, indent=2), encoding="utf-8")
 
     try:
-        user = await service.get_profile()
+        await service.get_profile()
         metadata = (await service.get_repo(TEST_REPO))["data"]
         branch = metadata.get("default_branch")
         if metadata.get("empty"):
             tree = await service.create_tree(TEST_REPO, [{"path": "README.md", "content": title + "\n"}])
             seed = await service.create_commit(
                 TEST_REPO, tree["sha"], [], title + " seed",
-                user.get("full_name") or user["login"],
-                user.get("email") or f"{user['login']}@users.noreply.local",
             )
             initial_sha = seed["sha"]
             ledger["checks"].append("empty_repository_seed")
@@ -76,8 +74,6 @@ async def run(config: str):
                 {"path": f"jasminetea-fixture/{identity}/second.txt", "content": "multi-file transaction\n"},
             ],
             title,
-            user.get("full_name") or user["login"],
-            user.get("email") or f"{user['login']}@users.noreply.local",
         )
         ledger["checks"].append("multi_file_commit")
         ledger["branch_shas"][feature] = commit["sha"]

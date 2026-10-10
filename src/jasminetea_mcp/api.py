@@ -1,6 +1,7 @@
 import asyncio
 import json
 import re
+import ssl
 from urllib.parse import unquote, urlsplit
 
 import httpx
@@ -12,8 +13,14 @@ from .errors import TeaError
 class GiteaClient:
     def __init__(self, settings: Settings, *, transport: httpx.AsyncBaseTransport | None = None):
         self.settings = settings
+        network = settings.network_environment()
+        verify = (
+            ssl.create_default_context(cafile=network.get("SSL_CERT_FILE"), capath=network.get("SSL_CERT_DIR"))
+            if network.get("SSL_CERT_FILE") or network.get("SSL_CERT_DIR") else True
+        )
         self.http = httpx.AsyncClient(
-            transport=transport, timeout=settings.timeout_seconds, follow_redirects=False, trust_env=False
+            transport=transport, timeout=settings.timeout_seconds, follow_redirects=False, trust_env=False,
+            proxy=settings.environment_proxy(), verify=verify,
         )
         self.schema: dict | None = None
 
@@ -50,7 +57,7 @@ class GiteaClient:
         url = self.settings.base_url + ("" if swagger else "/api/v1") + endpoint
         headers = {
             "Accept": "text/plain" if text else "application/json",
-            "User-Agent": "jasminetea-mcp/0.1.0",
+            "User-Agent": "jasminetea-mcp/0.2.0",
         }
         token = "" if swagger else self.settings.token()
         if token:
@@ -112,7 +119,7 @@ class GiteaClient:
                             uncertain=writing and response.status_code >= 500,
                         )
                     if not data:
-                        return None
+                        return "" if text else None
                     if text:
                         try:
                             return data.decode("utf-8")
@@ -138,13 +145,26 @@ class GiteaClient:
     ) -> dict:
         if page < 1 or not 1 <= limit <= 100:
             raise TeaError("invalid_input", "page must be positive and limit must be between 1 and 100.")
-        data = await self.request("GET", endpoint, params={**(params or {}), "page": page, "limit": limit})
+        schema = await self.swagger()
+        operation = next((item.get("get", {}) for path, item in schema["paths"].items()
+                          if re.fullmatch(re.sub(r"\\\{[^}]+\\\}", "[^/]+", re.escape(path)), endpoint)), {})
+        query_names = {p["name"] for p in operation.get("parameters", []) if p.get("in") == "query"}
+        paginated = {"page", "limit"} <= query_names
+        query = dict(params or {})
+        if paginated:
+            query.update(page=page, limit=limit)
+        data = await self.request("GET", endpoint, params=query)
         items = data.get("data", []) if isinstance(data, dict) and "data" in data else data
+        next_page = page + 1 if isinstance(items, list) and len(items) == limit else None
+        if not paginated and isinstance(items, list):
+            start = (page - 1) * limit
+            next_page = page + 1 if start + limit < len(items) else None
+            items = items[start:start + limit]
         return {
             "items": items,
             "page": page,
             "limit": limit,
-            "next_page": page + 1 if isinstance(items, list) and len(items) == limit else None,
+            "next_page": next_page,
         }
 
     async def swagger(self) -> dict:

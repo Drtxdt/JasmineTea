@@ -1,4 +1,5 @@
 import json
+import logging
 from contextlib import asynccontextmanager
 from functools import wraps
 
@@ -19,7 +20,7 @@ def create_server(service: TeaService) -> MCPServer:
             await service.close()
 
     server = MCPServer("JasmineTea", version=__version__, log_level="WARNING", lifespan=lifespan)
-    for name, method in service.methods().items():
+    for name, method in service.registered_methods().items():
         meta = method.tea_meta
 
         def wrap(function, metadata):
@@ -53,6 +54,18 @@ def create_server(service: TeaService) -> MCPServer:
                         content=[
                             TextContent(type="text", text=json.dumps(error.as_dict(), ensure_ascii=False))
                         ],
+                    )
+                except Exception as error:
+                    # Do not log exception messages/values: they can contain credentials or repo data.
+                    logging.getLogger(__name__).error(
+                        "Unexpected tool failure: tool=%s exception_type=%s",
+                        function.__name__, type(error).__name__,
+                    )
+                    return CallToolResult(
+                        is_error=True,
+                        content=[TextContent(type="text", text=json.dumps(
+                            TeaError("internal_error", "Unexpected tool failure.",
+                                     uncertain=metadata["write"]).as_dict()))],
                     )
 
             return call

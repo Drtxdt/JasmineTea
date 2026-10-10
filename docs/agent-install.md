@@ -69,7 +69,7 @@ tea_python="$(pwd)/.venv/bin/python"
 "$tea_python" -m jasminetea_mcp --version
 ```
 
-成功表现：安装命令退出码为 0，版本检查显示 `0.1.0`。不需要激活虚拟环境，后续一直使用它的绝对解释器路径。
+成功表现：安装命令退出码为 0，版本检查显示 `0.2.0`。不需要激活虚拟环境，后续一直使用它的绝对解释器路径。
 
 本地已有 wheel 时也可以在同一个虚拟环境中执行 `python -m pip install <wheel的绝对路径>`。不要尝试从 PyPI 安装尚未发布的 `jasminetea-mcp`。
 
@@ -240,3 +240,9 @@ claude mcp list
 | 配置有条目但没有工具 | 重启客户端，检查服务器启动错误；DSH 工具发现是异步的，需要等待。 |
 
 更多细节见[技术说明](technical.md)，已完成和未完成的验证见[验证记录](validation.md)。
+
+## 从 0.1 升级
+
+重新安装源码，重启客户端。默认只读现在只显示 37 个工具，可写名单非空时显示 68 个工具。`get_capabilities.registered_tools` 给出实际注册列表。`create_commit` 和 `commit_files` 不再接受作者参数，旧配置不需要添加身份。
+
+代理默认关闭。如果此前 Git 依赖环境代理，在 TOML 中设置 `trust_env = true`，重新运行 `config-example`，把输出合并到客户端配置。这会显式转发 HTTP_PROXY、HTTPS_PROXY、ALL_PROXY、NO_PROXY 和 SSL_CERT_FILE/SSL_CERT_DIR 的变量引用；不要把代理密码写进配置。

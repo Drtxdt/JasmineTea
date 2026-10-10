@@ -3,12 +3,17 @@ import re
 import tomllib
 from pathlib import Path
 from urllib.parse import quote, urlsplit
+from urllib.request import proxy_bypass_environment
 
 from dotenv import dotenv_values
 from platformdirs import user_cache_path
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from .errors import TeaError
+
+NETWORK_ENV_VARS = (
+    "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY", "SSL_CERT_FILE", "SSL_CERT_DIR"
+)
 
 
 def repository(value: str) -> str:
@@ -46,6 +51,7 @@ class Settings(BaseModel):
     write_repositories: list[str] = Field(default_factory=list)
     cache_dir: Path = Field(default_factory=lambda: user_cache_path("jasminetea-mcp"))
     timeout_seconds: float = Field(default=20, gt=0, le=300)
+    trust_env: bool = False
     max_text_bytes: int = Field(default=524288, gt=0, le=16777216)
     max_tool_bytes: int = Field(default=1048576, gt=0, le=16777216)
     max_response_bytes: int = Field(default=16777216, gt=0, le=67108864)
@@ -86,6 +92,24 @@ class Settings(BaseModel):
     def authorize_write(self, repo: str) -> None:
         if repository(repo) not in self.write_repositories:
             raise TeaError("write_disabled", f"Write access is not configured for {repo}.")
+
+    def network_environment(self) -> dict[str, str]:
+        if not self.trust_env:
+            return {}
+        result = {}
+        for name in NETWORK_ENV_VARS:
+            # Match the usual lowercase proxy precedence without importing arbitrary environment data.
+            value = os.environ.get(name.lower(), os.environ.get(name, ""))
+            if value:
+                result[name] = value
+        return result
+
+    def environment_proxy(self) -> str | None:
+        network = self.network_environment()
+        host = urlsplit(self.base_url)
+        if proxy_bypass_environment(host.netloc, {"no": network.get("NO_PROXY", "")}):
+            return None
+        return network.get(host.scheme.upper() + "_PROXY") or network.get("ALL_PROXY")
 
 
 def load_settings(path: str | None = None) -> Settings:

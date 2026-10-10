@@ -113,8 +113,9 @@ async def test_redirect_never_forwards_token(settings):
     await client.close()
 
 
-async def test_pagination_and_response_bound(settings):
+async def test_pagination_and_response_bound(settings, schema):
     client = GiteaClient(settings, transport=httpx.MockTransport(lambda _: httpx.Response(200, json=[1, 2])))
+    client.schema = schema
     result = await client.page("/user/repos", page=2, limit=2)
     assert result["next_page"] == 3
     with pytest.raises(TeaError):

@@ -3,7 +3,7 @@
     "reference": "add_comment_to_issue",
     "backend": "api",
     "tool": "add_comment_to_issue",
-    "notes": "Native Gitea REST operation; explicit pagination and platform permissions apply."
+    "notes": "Native Gitea REST operation; platform permissions apply."
   },
   {
     "reference": "add_issue_assignees",
@@ -15,19 +15,19 @@
     "reference": "add_issue_labels",
     "backend": "api",
     "tool": "add_issue_labels",
-    "notes": "Native Gitea REST operation; explicit pagination and platform permissions apply."
+    "notes": "Native Gitea REST operation; platform permissions apply."
   },
   {
     "reference": "add_reaction_to_issue_comment",
     "backend": "api",
     "tool": "add_reaction_to_issue_comment",
-    "notes": "Native Gitea REST operation; explicit pagination and platform permissions apply."
+    "notes": "Native Gitea REST operation; platform permissions apply."
   },
   {
     "reference": "add_reaction_to_pr",
     "backend": "api",
     "tool": "add_reaction_to_pr",
-    "notes": "Native Gitea REST operation; explicit pagination and platform permissions apply."
+    "notes": "Native Gitea REST operation; platform permissions apply."
   },
   {
     "reference": "add_reaction_to_pr_review_comment",
@@ -39,13 +39,13 @@
     "reference": "add_review_to_pr",
     "backend": "api",
     "tool": "add_review_to_pr",
-    "notes": "Native Gitea REST operation; explicit pagination and platform permissions apply."
+    "notes": "Native Gitea REST operation; platform permissions apply."
   },
   {
     "reference": "compare_commits",
     "backend": "git",
     "tool": "compare_commits",
-    "notes": "Resolved SHAs, bounded diff and per-file stats."
+    "notes": "Snapshot comparison by default; optional merge-base comparison reports the actual base SHA."
   },
   {
     "reference": "convert_pull_request_to_draft",
@@ -61,33 +61,33 @@
   },
   {
     "reference": "create_branch",
-    "backend": "api",
+    "backend": "mapped",
     "tool": "create_branch",
-    "notes": "Native Gitea REST operation; explicit pagination and platform permissions apply."
+    "notes": "Gitea branch API with Git fallback for local commit objects."
   },
   {
     "reference": "create_commit",
     "backend": "git",
     "tool": "create_commit",
-    "notes": "Explicit author identity; local until published."
+    "notes": "Author and committer fixed to authenticated login; local until published."
   },
   {
     "reference": "create_file",
     "backend": "api",
     "tool": "create_file",
-    "notes": "Native Gitea REST operation; explicit pagination and platform permissions apply."
+    "notes": "Native Gitea REST operation; platform permissions apply."
   },
   {
     "reference": "create_issue",
     "backend": "api",
     "tool": "create_issue",
-    "notes": "Native Gitea REST operation; explicit pagination and platform permissions apply."
+    "notes": "Native Gitea REST operation; platform permissions apply."
   },
   {
     "reference": "create_pull_request",
     "backend": "api",
     "tool": "create_pull_request",
-    "notes": "Native Gitea REST operation; explicit pagination and platform permissions apply."
+    "notes": "Native Gitea REST operation; platform permissions apply."
   },
   {
     "reference": "create_tree",
@@ -99,13 +99,13 @@
     "reference": "delete_file",
     "backend": "api",
     "tool": "delete_file",
-    "notes": "Native Gitea REST operation; explicit pagination and platform permissions apply."
+    "notes": "Native Gitea REST operation; platform permissions apply."
   },
   {
     "reference": "dismiss_pull_request_review",
     "backend": "api",
     "tool": "dismiss_pull_request_review",
-    "notes": "Native Gitea REST operation; explicit pagination and platform permissions apply."
+    "notes": "Native Gitea REST operation; platform permissions apply."
   },
   {
     "reference": "download_user_content",
@@ -123,25 +123,25 @@
     "reference": "enable_auto_merge",
     "backend": "api",
     "tool": "enable_auto_merge",
-    "notes": "Native Gitea REST operation; explicit pagination and platform permissions apply."
+    "notes": "Native Gitea REST operation; platform permissions apply."
   },
   {
     "reference": "fetch",
     "backend": "api",
     "tool": "fetch",
-    "notes": "Native Gitea REST operation; explicit pagination and platform permissions apply."
+    "notes": "Native Gitea REST operation; platform permissions apply."
   },
   {
     "reference": "fetch_blob",
     "backend": "api",
     "tool": "fetch_blob",
-    "notes": "Native Gitea REST operation; explicit pagination and platform permissions apply."
+    "notes": "Native Gitea REST operation; platform permissions apply."
   },
   {
     "reference": "fetch_commit",
     "backend": "api",
     "tool": "fetch_commit",
-    "notes": "Native Gitea REST operation; explicit pagination and platform permissions apply."
+    "notes": "Native Gitea REST operation; platform permissions apply."
   },
   {
     "reference": "fetch_commit_workflow_runs",
@@ -159,25 +159,25 @@
     "reference": "fetch_issue",
     "backend": "api",
     "tool": "fetch_issue",
-    "notes": "Native Gitea REST operation; explicit pagination and platform permissions apply."
+    "notes": "Native Gitea REST operation; platform permissions apply."
   },
   {
     "reference": "fetch_issue_comments",
     "backend": "api",
     "tool": "fetch_issue_comments",
-    "notes": "Native Gitea REST operation; explicit pagination and platform permissions apply."
+    "notes": "Native Gitea REST operation; platform permissions apply. Explicit pagination."
   },
   {
     "reference": "fetch_pr",
     "backend": "api",
     "tool": "fetch_pr",
-    "notes": "Native Gitea REST operation; explicit pagination and platform permissions apply."
+    "notes": "Native Gitea REST operation; platform permissions apply."
   },
   {
     "reference": "fetch_pr_comments",
     "backend": "api",
     "tool": "fetch_pr_comments",
-    "notes": "Native Gitea REST operation; explicit pagination and platform permissions apply."
+    "notes": "Native Gitea REST operation; platform permissions apply. Explicit pagination."
   },
   {
     "reference": "fetch_pr_file_patch",
@@ -219,19 +219,19 @@
     "reference": "get_commit_combined_status",
     "backend": "api",
     "tool": "get_commit_combined_status",
-    "notes": "Native Gitea REST operation; explicit pagination and platform permissions apply."
+    "notes": "Native Gitea REST operation; platform permissions apply."
   },
   {
     "reference": "get_issue_comment_reactions",
     "backend": "api",
     "tool": "get_issue_comment_reactions",
-    "notes": "Native Gitea REST operation; explicit pagination and platform permissions apply."
+    "notes": "Native Gitea REST operation; platform permissions apply. Explicit pagination."
   },
   {
     "reference": "get_pr_diff",
     "backend": "api",
     "tool": "get_pr_diff",
-    "notes": "Native Gitea REST operation; explicit pagination and platform permissions apply."
+    "notes": "Native Gitea REST operation; platform permissions apply."
   },
   {
     "reference": "get_pr_info",
@@ -243,7 +243,7 @@
     "reference": "get_pr_reactions",
     "backend": "api",
     "tool": "get_pr_reactions",
-    "notes": "Native Gitea REST operation; explicit pagination and platform permissions apply."
+    "notes": "Native Gitea REST operation; platform permissions apply. Explicit pagination."
   },
   {
     "reference": "get_pr_review_comment_reactions",
@@ -255,19 +255,19 @@
     "reference": "get_profile",
     "backend": "api",
     "tool": "get_profile",
-    "notes": "Native Gitea REST operation; explicit pagination and platform permissions apply."
+    "notes": "Native Gitea REST operation; platform permissions apply."
   },
   {
     "reference": "get_repo",
     "backend": "api",
     "tool": "get_repo",
-    "notes": "Native Gitea REST operation; explicit pagination and platform permissions apply."
+    "notes": "Native Gitea REST operation; platform permissions apply."
   },
   {
     "reference": "get_repo_collaborator_permission",
     "backend": "api",
     "tool": "get_repo_collaborator_permission",
-    "notes": "Native Gitea REST operation; explicit pagination and platform permissions apply."
+    "notes": "Native Gitea REST operation; platform permissions apply."
   },
   {
     "reference": "get_user_login",
@@ -279,7 +279,7 @@
     "reference": "get_users_recent_prs_in_repo",
     "backend": "api",
     "tool": "get_users_recent_prs_in_repo",
-    "notes": "Native Gitea REST operation; explicit pagination and platform permissions apply."
+    "notes": "Native Gitea REST operation; platform permissions apply. Explicit pagination."
   },
   {
     "reference": "label_pr",
@@ -303,7 +303,7 @@
     "reference": "list_pr_changed_filenames",
     "backend": "api",
     "tool": "list_pr_changed_filenames",
-    "notes": "Native Gitea REST operation; explicit pagination and platform permissions apply."
+    "notes": "Native Gitea REST operation; platform permissions apply. Explicit pagination."
   },
   {
     "reference": "list_pull_request_review_threads",
@@ -315,25 +315,25 @@
     "reference": "list_pull_request_reviews",
     "backend": "api",
     "tool": "list_pull_request_reviews",
-    "notes": "Native Gitea REST operation; explicit pagination and platform permissions apply."
+    "notes": "Native Gitea REST operation; platform permissions apply. Explicit pagination."
   },
   {
     "reference": "list_recent_issues",
     "backend": "api",
     "tool": "list_recent_issues",
-    "notes": "Native Gitea REST operation; explicit pagination and platform permissions apply."
+    "notes": "Native Gitea REST operation; platform permissions apply. Explicit pagination."
   },
   {
     "reference": "list_repositories",
     "backend": "api",
     "tool": "list_repositories",
-    "notes": "Native Gitea REST operation; explicit pagination and platform permissions apply."
+    "notes": "Native Gitea REST operation; platform permissions apply. Explicit pagination."
   },
   {
     "reference": "list_repositories_by_affiliation",
     "backend": "api",
     "tool": "list_repositories_by_affiliation",
-    "notes": "Native Gitea REST operation; explicit pagination and platform permissions apply."
+    "notes": "Native Gitea REST operation; platform permissions apply. Explicit pagination."
   },
   {
     "reference": "list_repositories_by_installation",
@@ -351,7 +351,7 @@
     "reference": "list_user_orgs",
     "backend": "api",
     "tool": "list_user_orgs",
-    "notes": "Native Gitea REST operation; explicit pagination and platform permissions apply."
+    "notes": "Native Gitea REST operation; platform permissions apply. Explicit pagination."
   },
   {
     "reference": "lock_issue_conversation",
@@ -369,7 +369,7 @@
     "reference": "merge_pull_request",
     "backend": "api",
     "tool": "merge_pull_request",
-    "notes": "Native Gitea REST operation; explicit pagination and platform permissions apply."
+    "notes": "Native Gitea REST operation; platform permissions apply."
   },
   {
     "reference": "remove_issue_assignees",
@@ -381,25 +381,25 @@
     "reference": "remove_issue_label",
     "backend": "api",
     "tool": "remove_issue_label",
-    "notes": "Native Gitea REST operation; explicit pagination and platform permissions apply."
+    "notes": "Native Gitea REST operation; platform permissions apply."
   },
   {
     "reference": "remove_pull_request_reviewers",
     "backend": "api",
     "tool": "remove_pull_request_reviewers",
-    "notes": "Native Gitea REST operation; explicit pagination and platform permissions apply."
+    "notes": "Native Gitea REST operation; platform permissions apply."
   },
   {
     "reference": "remove_reaction_from_issue_comment",
     "backend": "api",
     "tool": "remove_reaction_from_issue_comment",
-    "notes": "Native Gitea REST operation; explicit pagination and platform permissions apply."
+    "notes": "Native Gitea REST operation; platform permissions apply."
   },
   {
     "reference": "remove_reaction_from_pr",
     "backend": "api",
     "tool": "remove_reaction_from_pr",
-    "notes": "Native Gitea REST operation; explicit pagination and platform permissions apply."
+    "notes": "Native Gitea REST operation; platform permissions apply."
   },
   {
     "reference": "remove_reaction_from_pr_review_comment",
@@ -417,7 +417,7 @@
     "reference": "request_pull_request_reviewers",
     "backend": "api",
     "tool": "request_pull_request_reviewers",
-    "notes": "Native Gitea REST operation; explicit pagination and platform permissions apply."
+    "notes": "Native Gitea REST operation; platform permissions apply."
   },
   {
     "reference": "rerun_failed_workflow_run_jobs",
@@ -447,7 +447,7 @@
     "reference": "search_branches",
     "backend": "api",
     "tool": "search_branches",
-    "notes": "Native Gitea REST operation; explicit pagination and platform permissions apply."
+    "notes": "Native Gitea REST operation; platform permissions apply. Explicit pagination."
   },
   {
     "reference": "search_commits",
@@ -471,19 +471,19 @@
     "reference": "search_issues",
     "backend": "api",
     "tool": "search_issues",
-    "notes": "Native Gitea REST operation; explicit pagination and platform permissions apply."
+    "notes": "Native Gitea REST operation; platform permissions apply. Explicit pagination."
   },
   {
     "reference": "search_prs",
     "backend": "api",
     "tool": "search_prs",
-    "notes": "Native Gitea REST operation; explicit pagination and platform permissions apply."
+    "notes": "Native Gitea REST operation; platform permissions apply. Explicit pagination."
   },
   {
     "reference": "search_repositories",
     "backend": "api",
     "tool": "search_repositories",
-    "notes": "Native Gitea REST operation; explicit pagination and platform permissions apply."
+    "notes": "Native Gitea REST operation; platform permissions apply. Explicit pagination."
   },
   {
     "reference": "unlock_issue_conversation",
@@ -501,25 +501,25 @@
     "reference": "update_file",
     "backend": "api",
     "tool": "update_file",
-    "notes": "Native Gitea REST operation; explicit pagination and platform permissions apply."
+    "notes": "Native Gitea REST operation; platform permissions apply."
   },
   {
     "reference": "update_issue",
     "backend": "api",
     "tool": "update_issue",
-    "notes": "Native Gitea REST operation; explicit pagination and platform permissions apply."
+    "notes": "Native Gitea REST operation; platform permissions apply."
   },
   {
     "reference": "update_issue_comment",
     "backend": "api",
     "tool": "update_issue_comment",
-    "notes": "Native Gitea REST operation; explicit pagination and platform permissions apply."
+    "notes": "Native Gitea REST operation; platform permissions apply."
   },
   {
     "reference": "update_pull_request",
     "backend": "api",
     "tool": "update_pull_request",
-    "notes": "Native Gitea REST operation; explicit pagination and platform permissions apply."
+    "notes": "Native Gitea REST operation; platform permissions apply."
   },
   {
     "reference": "update_ref",

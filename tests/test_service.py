@@ -94,8 +94,6 @@ async def test_all_native_tools_call_real_instance_contracts(api_service, schema
         await method(**arguments(method))
     assert len(requests) >= 40
     for request in requests:
-        if request.method == "GET" or not request.content:
-            continue
         matching = [
             item
             for path, item in schema["paths"].items()
@@ -105,6 +103,19 @@ async def test_all_native_tools_call_real_instance_contracts(api_service, schema
         ]
         assert matching, request.url.path
         operation = next(item[request.method.lower()] for item in matching if request.method.lower() in item)
+        queries = {p["name"]: p for p in operation.get("parameters", []) if p.get("in") == "query"}
+        assert set(request.url.params) <= set(queries), request.url
+        for key in request.url.params:
+            value = request.url.params[key]
+            parameter = queries[key]
+            if "enum" in parameter:
+                assert value in parameter["enum"], (key, value)
+            if parameter["type"] == "integer":
+                assert str(int(value)) == value, (key, value)
+            elif parameter["type"] == "boolean":
+                assert value in ("true", "false"), (key, value)
+        if request.method == "GET" or not request.content:
+            continue
         for parameter in operation.get("parameters", []):
             if parameter.get("in") == "body":
                 contract = {**parameter["schema"], "definitions": schema["definitions"]}

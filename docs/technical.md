@@ -56,3 +56,21 @@ CI 包含 Windows/Linux 和 Python 3.11/3.13。真实平台测试需要个人 To
 - [Codex MCP](https://learn.chatgpt.com/docs/extend/mcp)
 - [DeepSeek Harness MCP](https://deepseek-harness.github.io/deepseek-harness/en/guide/mcp-memory)
 - [Claude Code MCP](https://code.claude.com/docs/en/mcp)
+
+## 0.2 行为与迁移
+
+可写名单为空时只注册 37 个读取工具，非空时注册 68 个工具；修改配置后重启服务。能力报告仍覆盖 89 项，`registered_tools` 是本次实际注册列表。
+
+`create_commit`、`commit_files` 的身份由 `/user` 决定：作者与提交者名均为 login，邮箱缺失时用 `<login>@users.noreply.local`。无法读取或解析身份时停止提交；没有覆盖参数。
+
+缓存首次成功 fetch 后写入 `.ready`，失败初始化下次会重新 fetch，旧缓存也以一次 fetch 迁移。已就绪缓存刷新失败会报告错误，但保留已有对象。
+
+代码搜索按全仓库总量截断，并限制 stdout、stderr 和解析缓冲；多取一条判断 `truncated`，字节预算耗尽时返回已有结果。超时和截断均回收子进程，不要求新版 Git 的 grep 参数。
+
+`compare_commits` 默认比较两端快照；`merge_base=true` 比较共同祖先到 head，`comparison_base_sha` 返回实际基准。自己的 PR 按 `created_by` 筛选；PR 和 Issue 列表采用平台默认顺序，不保证更新时间排序。未公布分页参数的接口在响应字节预算内读取后本地分页。
+
+Git 仅继承运行需要的环境白名单，鉴权由服务注入。`trust_env=false` 同时关闭 HTTP 和 Git 环境代理；开启后只使用受控代理和证书变量，支持 `NO_PROXY`。Git 的环境配置、其他凭据和原始 Token 不继承到子进程。
+
+Git 错误区分 `invalid_input`、`authentication_required`、`forbidden`、`protected_branch`、`conflict` 和 `remote_rejected`。明确的 push 拒绝标记结果确定；超时或状态不明仍标记不确定。意外工具异常返回不含原异常内容的 `internal_error`，写工具保守标记不确定。
+
+CI 另设 Linux Git 2.34.1 的本地 Git 测试任务。

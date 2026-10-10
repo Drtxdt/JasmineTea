@@ -44,7 +44,7 @@ BDGIT_TOKEN=你自己的Token
 先检查连接，把下面的仓库名换成你有权限访问的仓库：
 
 ```powershell
-.\.venv\Scripts\python.exe -m jasminetea_mcp doctor --config "$teaDir\config.toml" --repo hndx202426010302/JasmineTea-test
+.\.venv\Scripts\python.exe -m jasminetea_mcp doctor --config "$teaDir\config.toml" --repo owner/name
 .\.venv\Scripts\python.exe -m jasminetea_mcp config-example --client codex --config "$teaDir\config.toml"
 ```
 
@@ -60,7 +60,7 @@ BDGIT_TOKEN=你自己的Token
 
 目前可以读取仓库文件和提交、搜索代码、比较分支，也可以处理 Issue、评论、标签、PR、审查与合并。
 
-**默认只读。** 如果你确实需要 AI 修改某个仓库，在自己的 `config.toml` 中添加它：
+**默认只读，只显示读取工具。** 如果你确实需要 AI 修改某个仓库，在自己的 `config.toml` 中添加它：
 
 ```toml
 base_url = "https://bdgit.educoder.net"
@@ -68,9 +68,11 @@ token_env = "BDGIT_TOKEN"
 write_repositories = ["你的用户名/你的仓库名"]
 ```
 
-只有名单里的仓库允许写入，你的账号也必须有对应权限。其他 Gitea 平台可以修改 `base_url`，仓库名仍然使用 `owner/name`。
+修改名单后重启服务，才会显示写入工具。只有名单里的仓库允许写入，你的账号也必须有对应权限。其他 Gitea 平台可以修改 `base_url`，仓库名仍然使用 `owner/name`。
 
 平台没有的功能，我们也没法凭空变出来。例如当前 bdgit 没有公开 Actions、PR 草稿和审查线程解决状态的接口，会话锁定也缺少必要字段。这些操作会明确说明不支持。
+
+提交的作者和提交者固定为你的登录账号，AI 不能指定其他人。Git 作者字段本身不能作为贡献证明，课程计分还要结合平台记录。
 
 完整列表见[能力对照](docs/capabilities.md)。其中部分能力按 Gitea 的方式实现，不保证和 GitHub 完全相同。我们已在测试仓库跑通过提交、Issue、PR、审查和合并，但还没有把每个 API 都逐项实测，三个客户端的实际联调也还要继续补。具体见[验证记录](docs/validation.md)。
 

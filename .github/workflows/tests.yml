@@ -22,3 +22,21 @@ jobs:
       - run: python -m twine check dist/*
       - name: Install wheel in a clean environment and verify stdio
         run: python scripts/check_wheel.py
+  git-234:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.11'
+      - name: Build Git 2.34.1
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential libcurl4-openssl-dev libssl-dev zlib1g-dev
+          curl --fail --location https://www.kernel.org/pub/software/scm/git/git-2.34.1.tar.xz -o "$RUNNER_TEMP/git.tar.xz"
+          tar -xf "$RUNNER_TEMP/git.tar.xz" -C "$RUNNER_TEMP"
+          make -C "$RUNNER_TEMP/git-2.34.1" -j2 prefix="$RUNNER_TEMP/git234" NO_TCLTK=YesPlease NO_GETTEXT=YesPlease install
+          echo "$RUNNER_TEMP/git234/bin" >> "$GITHUB_PATH"
+      - run: test "$(git --version)" = "git version 2.34.1"
+      - run: python -m pip install -e ".[dev]"
+      - run: python -m pytest -q tests/test_git.py tests/test_git_review.py tests/test_network_review.py

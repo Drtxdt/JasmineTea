@@ -47,6 +47,7 @@ class TeaService:
         self.api = api or GiteaClient(settings)
         self.git = git or GitBackend(settings)
         self._git_identity_ready = False
+        self._identity: tuple[str, str] | None = None
 
     async def close(self):
         await self.api.close()
@@ -57,6 +58,20 @@ class TeaService:
             for name in dir(self)
             if getattr(getattr(self, name), "tea_meta", None) is not None
         }
+
+    def registered_methods(self) -> dict:
+        return {name: method for name, method in self.methods().items()
+                if self.settings.write_repositories or not method.tea_meta["write"]}
+
+    async def _commit_identity(self) -> tuple[str, str]:
+        if self._identity is None:
+            user = await self.get_profile()
+            name = user["login"]
+            email = user.get("email") or f"{name}@users.noreply.local"
+            if not isinstance(email, str) or any(c in email for c in "\r\n\x00<>") or not email.strip():
+                raise TeaError("invalid_response", "Platform returned an invalid commit identity.")
+            self._identity = (name, email)
+        return self._identity
 
     def _link(self, repo: str) -> str:
         return self.settings.base_url + "/" + "/".join(quote(p, safe="") for p in repository(repo).split("/"))
@@ -90,7 +105,7 @@ class TeaService:
     async def _git(self, repo: str, operation: str, *args):
         repository(repo)
         if not self._git_identity_ready:
-            user = await self.api.request("GET", "/user")
+            user = await self.get_profile()
             self.git.login = user["login"]
             self._git_identity_ready = True
         result = await asyncio.to_thread(getattr(self.git, operation), repo, *args)
@@ -109,12 +124,14 @@ class TeaService:
             return {
                 "platform": self.settings.base_url,
                 "schema_verified": False,
+                "registered_tools": sorted(self.registered_methods()),
                 "error": error.as_dict(),
                 "capabilities": capability_report(None, self.methods(), bool(self.git.git)),
             }
         return {
             "platform": self.settings.base_url,
             "schema_verified": True,
+            "registered_tools": sorted(self.registered_methods()),
             "version": schema.get("info", {}).get("version"),
             "write_repositories": self.settings.write_repositories,
             "capabilities": capability_report(schema, self.methods(), bool(self.git.git)),
@@ -123,7 +140,11 @@ class TeaService:
     @exposed(path="/user")
     async def get_profile(self) -> dict:
         """Read the authenticated Gitea user's profile."""
-        return await self.api.request("GET", "/user")
+        user = await self.api.request("GET", "/user")
+        if (not isinstance(user, dict) or not isinstance(user.get("login"), str)
+                or not user["login"].strip() or any(c in user["login"] for c in "\r\n\x00<>")):
+            raise TeaError("invalid_response", "Platform returned an invalid user identity.")
+        return user
 
     @exposed(path="/user/repos")
     async def list_repositories(self, page: int = 1, limit: int = 50) -> dict:
@@ -320,9 +341,11 @@ class TeaService:
         }
 
     @exposed()
-    async def compare_commits(self, repo: str, base: str, head: str, path: str | None = None) -> dict:
+    async def compare_commits(
+        self, repo: str, base: str, head: str, path: str | None = None, merge_base: bool = False
+    ) -> dict:
         """Compare two refs using bare Git; report resolved SHAs, file stats and bounded diff."""
-        return await self._git(repo, "diff", base, head, path)
+        return await self._git(repo, "diff", base, head, path, merge_base)
 
     @exposed()
     async def search(self, repo: str, query: str, ref: str | None = None, limit: int = 20) -> dict:
@@ -406,10 +429,11 @@ class TeaService:
 
     @exposed(write=True)
     async def create_commit(
-        self, repo: str, tree: str, parents: list[str], message: str, author_name: str, author_email: str
+        self, repo: str, tree: str, parents: list[str], message: str
     ) -> dict:
         """Create a local commit from a tree and parents; update_ref publishes it."""
-        return await self._git(repo, "create_commit", tree, parents, message, author_name, author_email)
+        name, email = await self._commit_identity()
+        return await self._git(repo, "create_commit", tree, parents, message, name, email)
 
     @exposed(write=True, destructive=True)
     async def update_ref(self, repo: str, branch: str, sha: str, expected_sha: str) -> dict:
@@ -424,13 +448,10 @@ class TeaService:
         expected_sha: str,
         changes: list[dict],
         message: str,
-        author_name: str,
-        author_email: str,
     ) -> dict:
         """Atomically commit multiple file changes and publish using a branch SHA lease."""
-        return await self._git(
-            repo, "commit_files", branch, expected_sha, changes, message, author_name, author_email
-        )
+        name, email = await self._commit_identity()
+        return await self._git(repo, "commit_files", branch, expected_sha, changes, message, name, email)
 
     @exposed(path="/repos/{owner}/{repo}/issues")
     async def search_issues(
@@ -448,7 +469,7 @@ class TeaService:
     async def list_recent_issues(self, page: int = 1, limit: int = 50) -> dict:
         """List recent issues across repositories accessible to this user."""
         return await self.api.page(
-            "/repos/issues/search", page=page, limit=limit, params={"type": "issues", "sort": "updated"}
+            "/repos/issues/search", page=page, limit=limit, params={"type": "issues"}
         )
 
     @exposed(path="/repos/{owner}/{repo}/issues/{index}")
@@ -600,13 +621,14 @@ class TeaService:
 
     @exposed(path="/repos/{owner}/{repo}/issues")
     async def get_users_recent_prs_in_repo(self, repo: str, page: int = 1, limit: int = 50) -> dict:
-        """List a page of the authenticated user's recent PRs."""
+        """List the authenticated user's PRs in platform-default order, not updated-time order."""
+        user = await self.get_profile()
         return await self._page(
             repo,
             "/issues",
             page,
             limit,
-            {"type": "pulls", "created": "true", "state": "all", "sort": "updated"},
+            {"type": "pulls", "created_by": user["login"], "state": "all"},
         )
 
     @exposed(path="/repos/{owner}/{repo}/pulls/{index}")

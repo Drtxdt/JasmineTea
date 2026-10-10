@@ -4,8 +4,11 @@ import os
 import re
 import shutil
 import subprocess
+import threading
+import time
 from contextlib import contextmanager
 from pathlib import Path
+from queue import Empty, Full, Queue
 from urllib.parse import quote
 from uuid import uuid4
 
@@ -32,7 +35,12 @@ class GitBackend:
     def _environment(self) -> dict[str, str]:
         token = self.settings.token()
         authorization = base64.b64encode(f"{self.login}:{token}".encode()).decode()
-        env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
+        allowed = {
+            "PATH", "SYSTEMROOT", "WINDIR", "COMSPEC", "PATHEXT", "TEMP", "TMP", "TMPDIR",
+            "HOME", "USERPROFILE", "HOMEDRIVE", "HOMEPATH", "APPDATA", "LOCALAPPDATA",
+        }
+        env = {k: v for k, v in os.environ.items()
+               if k.upper() in allowed and k.upper() != self.settings.token_env.upper()}
         env.update(
             {
                 "GIT_TERMINAL_PROMPT": "0",
@@ -50,7 +58,44 @@ class GitBackend:
                 "GIT_CONFIG_VALUE_3": "false",
             }
         )
+        env["LC_ALL"] = "C"
+        network = self.settings.network_environment()
+        extra = [("http.proxy", self.settings.environment_proxy() or "")]
+        if network.get("SSL_CERT_FILE"):
+            extra += [("http.sslCAInfo", network["SSL_CERT_FILE"]), ("http.schannelUseSSLCAInfo", "true")]
+        if network.get("SSL_CERT_DIR"):
+            extra.append(("http.sslCAPath", network["SSL_CERT_DIR"]))
+        for key, value in extra:
+            index = int(env["GIT_CONFIG_COUNT"])
+            env[f"GIT_CONFIG_KEY_{index}"] = key
+            env[f"GIT_CONFIG_VALUE_{index}"] = value
+            env["GIT_CONFIG_COUNT"] = str(index + 1)
         return env
+
+    @staticmethod
+    def _failure(args: list[str], stdout: bytes, stderr: bytes, writing: bool) -> TeaError:
+        detail = stderr[:8192].lower()
+        rejected = [line for line in stdout.splitlines() if line.startswith(b"!\t")]
+        published = any(line[:1] in (b"*", b"+", b" ", b"-") for line in stdout.splitlines())
+        clear = bool(rejected) and not published
+        if args and args[0] == "check-ref-format":
+            return TeaError("invalid_input", "Invalid branch name.")
+        if b"authentication failed" in detail or b"could not read username" in detail:
+            code, message = "authentication_required", "Git authentication failed; verify the token."
+        elif b"protected branch" in detail or b"protected branches" in detail:
+            code, message = "protected_branch", "The platform rejected an update to a protected branch."
+        elif any(x in detail for x in (b"permission denied", b"access denied", b"error: 403", b"not permitted")):
+            code, message = "forbidden", "Git access was denied; check repository and token permissions."
+        elif rejected and any(x in b" ".join(rejected).lower()
+                              for x in (b"stale info", b"non-fast-forward", b"fetch first")):
+            code, message = "conflict", "Remote branch changed or the update is not fast-forward."
+        elif rejected:
+            code, message = "remote_rejected", "The remote rejected the update; check branch policies."
+        else:
+            code, message = "git_error", "Git failed; check connectivity, repository access and the ref."
+        if code in ("authentication_required", "forbidden", "protected_branch") and not published:
+            clear = True
+        return TeaError(code, message, uncertain=writing and not clear)
 
     def _run(
         self,
@@ -83,13 +128,7 @@ class GitBackend:
         except OSError:
             raise TeaError("git_unavailable", "Git could not be started.") from None
         if result.returncode and (check or (allowed_codes and result.returncode not in allowed_codes)):
-            # Git output may contain credentials through a remote/proxy; never return stderr.
-            code = "conflict" if writing else "git_error"
-            raise TeaError(
-                code,
-                "Git operation failed. Check access, ref existence, and the expected SHA.",
-                uncertain=writing,
-            )
+            raise self._failure(args, result.stdout, result.stderr, writing)
         if len(result.stdout) > self.settings.max_response_bytes:
             raise TeaError(
                 "response_too_large", "Git output exceeds the configured byte limit.", uncertain=writing
@@ -119,7 +158,8 @@ class GitBackend:
                     self._run(None, ["init", "--bare", str(directory)])
                     self._run(directory, ["remote", "add", "origin", self._remote_url(repo)])
                     refresh = True
-                if refresh:
+                ready = directory / ".ready"
+                if refresh or not ready.is_file():
                     self._run(
                         directory,
                         [
@@ -130,6 +170,7 @@ class GitBackend:
                             "+refs/tags/*:refs/tags/*",
                         ],
                     )
+                    ready.write_bytes(b"1\n")
                 yield directory
         except Timeout:
             raise TeaError("busy", "Repository cache is busy; try again later.") from None
@@ -262,25 +303,110 @@ class GitBackend:
             raise TeaError("invalid_input", "Use a nonempty query and a limit between 1 and 100.")
         with self._cache(repo, refresh=True) as directory:
             sha = self._resolve(directory, ref)
-            raw = self._run(
-                directory,
-                ["grep", "-n", "-I", "-F", "--null", f"--max-count={limit}", "-e", query, sha, "--"],
-                check=False,
-                allowed_codes=(0, 1),
+            return self._search_stream(directory, sha, query, limit, repo)
+
+    def _search_stream(self, directory: Path, sha: str, query: str, limit: int, repo: str) -> dict:
+        if not self.git:
+            raise TeaError("git_unavailable", "Install Git to search code.")
+        args = ["grep", "--threads=1", "--no-color", "--no-textconv", "-n", "-I", "-F",
+                "--null", "-e", query, sha, "--"]
+        try:
+            process = subprocess.Popen(
+                [self.git, "--git-dir", str(directory), *args], stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE, env=self._environment(), shell=False,
             )
-            hits = []
-            for record in raw.splitlines():
-                parts = record.split(b"\0", 2)
-                if len(parts) == 3:
-                    name, line, content = parts
-                    hits.append(
-                        {
-                            "path": name.decode("utf-8", "replace").removeprefix(sha + ":"),
-                            "line": int(line),
-                            "excerpt": content[:1000].decode("utf-8", "replace"),
-                        }
-                    )
-            return {"repo": repo, "sha": sha, "items": hits[:limit], "truncated": len(hits) > limit}
+        except OSError:
+            raise TeaError("git_unavailable", "Git could not be started.") from None
+        queue = Queue(maxsize=4)
+        stopped = threading.Event()
+        stderr = bytearray()
+
+        def output_reader():
+            try:
+                while not stopped.is_set():
+                    chunk = process.stdout.read1(65536)
+                    while not stopped.is_set():
+                        try:
+                            queue.put(chunk, timeout=0.1)
+                            break
+                        except Full:
+                            continue
+                    if not chunk:
+                        break
+            finally:
+                process.stdout.close()
+
+        def error_reader():
+            try:
+                while chunk := process.stderr.read1(8192):
+                    if len(stderr) < 8192:
+                        stderr.extend(chunk[:8192 - len(stderr)])
+            finally:
+                process.stderr.close()
+
+        readers = [threading.Thread(target=output_reader, daemon=True),
+                   threading.Thread(target=error_reader, daemon=True)]
+        for reader in readers:
+            reader.start()
+        deadline = time.monotonic() + self.settings.timeout_seconds * 3
+        buffer, fields, hits = bytearray(), [], []
+        consumed, truncated = 0, False
+        try:
+            while True:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    raise TeaError("git_timeout", "Code search timed out.")
+                try:
+                    chunk = queue.get(timeout=remaining)
+                except Empty:
+                    raise TeaError("git_timeout", "Code search timed out.") from None
+                eof = not chunk
+                capacity = self.settings.max_response_bytes - consumed
+                limited = len(chunk) > capacity
+                buffer.extend(chunk[:capacity])
+                consumed += min(len(chunk), capacity)
+                while True:
+                    separator = b"\0" if len(fields) < 2 else b"\n"
+                    index = buffer.find(separator)
+                    if index < 0:
+                        if eof and len(fields) == 2 and buffer:
+                            index = len(buffer)
+                        else:
+                            break
+                    value = bytes(buffer[:index])
+                    del buffer[:index + 1]
+                    if len(fields) < 2:
+                        fields.append(value)
+                    else:
+                        name, line = fields
+                        fields = []
+                        if not line.isdigit():
+                            raise TeaError("invalid_response", "Invalid Git search record.")
+                        hits.append({"path": name.decode("utf-8", "replace").removeprefix(sha + ":"),
+                                     "line": int(line), "excerpt": value[:1000].decode("utf-8", "replace")})
+                        if len(hits) > limit:
+                            truncated = True
+                            break
+                if truncated or limited or (not eof and consumed >= self.settings.max_response_bytes):
+                    truncated = True
+                    break
+                if eof:
+                    try:
+                        code = process.wait(timeout=max(0.001, deadline - time.monotonic()))
+                    except subprocess.TimeoutExpired:
+                        raise TeaError("git_timeout", "Code search timed out.") from None
+                    readers[1].join(timeout=1)
+                    if code not in (0, 1):
+                        raise self._failure(args, b"", bytes(stderr), False)
+                    break
+            return {"repo": repo, "sha": sha, "items": hits[:limit], "truncated": truncated}
+        finally:
+            stopped.set()
+            if process.poll() is None:
+                process.kill()
+            process.wait(timeout=5)
+            for reader in readers:
+                reader.join(timeout=2)
 
     def search_commits(self, repo: str, ref: str, query: str = "", limit: int = 20) -> dict:
         if not 1 <= limit <= 100:
@@ -443,7 +569,12 @@ class GitBackend:
         if current != expected_sha:
             raise TeaError("conflict", "Remote branch changed; read its current SHA before retrying.")
         # Fast-forward only, even if the caller knows the current SHA.
-        self._run(directory, ["merge-base", "--is-ancestor", expected_sha, sha])
+        try:
+            self._run(directory, ["merge-base", "--is-ancestor", expected_sha, sha])
+        except TeaError as error:
+            if error.code == "git_error":
+                raise TeaError("conflict", "Update is not fast-forward; history rewrites are refused.") from None
+            raise
         self._run(
             directory,
             [

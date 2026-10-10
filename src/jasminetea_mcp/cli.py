@@ -7,7 +7,7 @@ from pathlib import Path
 from pydantic import ValidationError
 
 from . import __version__
-from .config import load_settings
+from .config import NETWORK_ENV_VARS, load_settings
 from .errors import TeaError
 from .service import TeaService
 
@@ -15,6 +15,7 @@ from .service import TeaService
 def client_example(client: str, config: str | None = None) -> str:
     args = ["-m", "jasminetea_mcp", "serve"]
     token_env = "BDGIT_TOKEN"
+    trust_env = False
     if config:
         config = str(Path(config).resolve())
         args += ["--config", config]
@@ -24,7 +25,12 @@ def client_example(client: str, config: str | None = None) -> str:
             from .config import Settings
 
             with Path(config).open("rb") as stream:
-                token_env = Settings(**tomllib.load(stream)).token_env
+                settings = Settings(**tomllib.load(stream))
+                token_env, trust_env = settings.token_env, settings.trust_env
+    forwarded = [token_env]
+    if trust_env:
+        forwarded += list(NETWORK_ENV_VARS) + [n.lower() for n in NETWORK_ENV_VARS if n.endswith("PROXY")]
+    forwarded = list(dict.fromkeys(forwarded))
     if client == "codex":
         return (
             "[mcp_servers.jasminetea]\ncommand = "
@@ -32,7 +38,7 @@ def client_example(client: str, config: str | None = None) -> str:
             + "\nargs = "
             + json.dumps(args)
             + "\nenv_vars = "
-            + json.dumps([token_env])
+            + json.dumps(forwarded)
             + "\n"
         )
     if client == "claude":
@@ -44,7 +50,7 @@ def client_example(client: str, config: str | None = None) -> str:
                             "type": "stdio",
                             "command": sys.executable,
                             "args": args,
-                            "env": {token_env: "${" + token_env + ":-}"},
+                            "env": {name: "${" + name + ":-}" for name in forwarded},
                         }
                     }
                 },
@@ -60,11 +66,8 @@ def client_example(client: str, config: str | None = None) -> str:
         + json.dumps(sys.executable)
         + "\n        args: "
         + json.dumps(args)
-        + "\n        env:\n          "
-        + token_env
-        + ": !!js process.env."
-        + token_env
-        + " || ''\n"
+        + "\n        env:\n"
+        + "".join(f"          {name}: !!js process.env.{name} || ''\n" for name in forwarded)
     )
 
 

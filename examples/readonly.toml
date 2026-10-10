@@ -1,4 +1,5 @@
 base_url = "https://bdgit.educoder.net"
 token_env = "BDGIT_TOKEN"
 write_repositories = []
+trust_env = false
 # cache_dir = ".jasminetea-cache"

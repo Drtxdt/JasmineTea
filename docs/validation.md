@@ -2,6 +2,14 @@
 
 更新日期：2026-10-10。这个记录区分离线实现验证、真实平台调用和实际客户端运行。
 
+## 0.2 本轮验证
+
+- Windows Python 3.13.1 / Git 2.45.1：97 项自动测试、Ruff 通过。覆盖空文本、query 契约、缓存恢复、流式搜索及回收、登录身份、两种协议的工具注册、分叉历史、真实远端保护拒绝、写入超时和 HTTP/Git 代理开关及 NO_PROXY。
+- 专用 bdgit 闭环通过：标识 `79cf37d74f6e`，Issue #7 关闭，PR #8 合并，两条临时分支删除；本地记录 `artifacts/live-79cf37d74f6e.json`。未改动原默认分支。
+- 标准 stdio 真实平台调用通过：68 个工具、读取、受控 Issue 写入、越权拒绝、清理；Issue #9 关闭，记录 `artifacts/live-stdio.json`。
+- Windows/Linux × Python 3.11/3.13 和新增 Git 2.34.1 CI 的最终结果待推送后核对。
+- 下面保留 0.1 的历史验证记录，不能代替本轮结果。
+
 ## 已验证
 
 - Windows，Python 3.13.1，Git 2.45.1.windows.1，MCP Python SDK 2.3.0。
