@@ -11,7 +11,8 @@
 - 两个客户端的真实 Git 提交作者和提交者均核验为登录账号，均有 COMMENT 审查；确认仅清理本次标识对象，仓库原默认分支保持不变。汇总 `artifacts/client-v03-results.json`。
 - DeepSeek Harness、Kimi Code CLI：配置生成及服务端协议回归通过；本机没有可用模型账号，按用户选择将真实客户端调用记为待实测。配置生成不等于客户端验收完成。
 - 新配置默认 Core；专用 Review 配置实际发现 30 项工具。真实平台默认分支与非名单仓库写入拒绝、合并隐藏探针通过，未创建对象。记录 `artifacts/live-v03-policy.json`。
-- 最终 0.3.0 wheel/sdist 隔离构建及 Twine 检查通过，干净虚拟环境安装与 stdio 新旧协议通过；待提交文件和安装包的凭据及私有文件扫描通过。CI 结果将在推送后更新。本轮未上传 PyPI。
+- 最终 0.3.0 wheel/sdist 隔离构建及 Twine 检查通过，干净虚拟环境安装与 stdio 新旧协议通过；待提交文件和安装包的凭据及私有文件扫描通过。本轮未上传 PyPI。
+- 实现提交 `b28e783` 的五组 CI 全部成功：Windows/Linux × Python 3.11/3.13 的测试、Ruff、构建、Twine 和干净环境 wheel/stdio，以及 Linux Git 2.34.1 兼容测试子集。[0.3 CI](https://github.com/Drtxdt/JasmineTea/actions/runs/38199252130)
 
 Swagger 降级用模拟实例验证，尚未在关闭 Swagger 的真实 Gitea 实例联调；没有据此宣称兼容所有版本。大文件局部读取、历史/Fork PR 降级、原子 Assignee 和缓存清理仍为后续任务。
 
