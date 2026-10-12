@@ -27,7 +27,7 @@ def create_server(service: TeaService) -> MCPServer:
             @wraps(function)
             async def call(*args, **kwargs):
                 try:
-                    if metadata["path"]:
+                    if metadata["path"] and not metadata["write"]:
                         # Discovery lists stable tools; live capability checks reject absent API operations.
                         if metadata["write"]:
                             repo = kwargs.get("repo")

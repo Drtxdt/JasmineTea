@@ -63,7 +63,7 @@
     "reference": "create_branch",
     "backend": "mapped",
     "tool": "create_branch",
-    "notes": "Gitea branch API with Git fallback for local commit objects."
+    "notes": "API 创建分支；完整 SHA、跨 ref 或接口字段不足时使用 Git 和创建 lease。"
   },
   {
     "reference": "create_commit",

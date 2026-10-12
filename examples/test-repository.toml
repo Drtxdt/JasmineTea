@@ -1,3 +1,4 @@
+tool_profile = "review"
 base_url = "https://bdgit.educoder.net"
 token_env = "BDGIT_TOKEN"
 write_repositories = ["hndx202426010302/JasmineTea-test"]

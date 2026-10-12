@@ -1,6 +1,7 @@
 import os
 import re
 import tomllib
+import warnings
 from pathlib import Path
 from urllib.parse import quote, urlsplit
 from urllib.request import proxy_bypass_environment
@@ -10,10 +11,9 @@ from platformdirs import user_cache_path
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from .errors import TeaError
+from .profiles import MERGES, SAFE_WRITES, WRITE_OPERATIONS
 
-NETWORK_ENV_VARS = (
-    "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY", "SSL_CERT_FILE", "SSL_CERT_DIR"
-)
+NETWORK_ENV_VARS = ("HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY", "SSL_CERT_FILE", "SSL_CERT_DIR")
 
 
 def repository(value: str) -> str:
@@ -49,6 +49,12 @@ class Settings(BaseModel):
     base_url: str = "https://bdgit.educoder.net"
     token_env: str = "BDGIT_TOKEN"
     write_repositories: list[str] = Field(default_factory=list)
+    tool_profile: str = "core"
+    allowed_write_operations: list[str] = Field(default_factory=lambda: list(SAFE_WRITES))
+    protected_branches: list[str] = Field(default_factory=lambda: ["main", "master"])
+    protect_default_branch: bool = True
+    git_refresh_ttl_seconds: float = Field(default=30, ge=0)
+    git_fetch_timeout_seconds: float = Field(default=120, gt=0, le=3600)
     cache_dir: Path = Field(default_factory=lambda: user_cache_path("jasminetea-mcp"))
     timeout_seconds: float = Field(default=20, gt=0, le=300)
     trust_env: bool = False
@@ -93,6 +99,63 @@ class Settings(BaseModel):
         if repository(repo) not in self.write_repositories:
             raise TeaError("write_disabled", f"Write access is not configured for {repo}.")
 
+    @field_validator("tool_profile")
+    @classmethod
+    def validate_profile(cls, value: str) -> str:
+        if value not in ("core", "review", "full"):
+            raise ValueError("Unknown tool profile")
+        return value
+
+    @field_validator("allowed_write_operations")
+    @classmethod
+    def validate_operations(cls, values: list[str]) -> list[str]:
+        if set(values) - WRITE_OPERATIONS:
+            raise ValueError("Unknown write operation")
+        return sorted(set(values))
+
+    @staticmethod
+    def normalize_branch(branch: str) -> str:
+        if not isinstance(branch, str):
+            raise TeaError("invalid_input", "Expected a literal Git branch name.")
+        branch = branch.removeprefix("refs/heads/")
+        if (
+            not branch
+            or branch in ("HEAD", "@")
+            or branch.startswith(("-", "/", "refs/"))
+            or branch.endswith(("/", ".", ".lock"))
+            or ".." in branch
+            or "@{" in branch
+            or any(c in branch for c in " ~^:?*[\\\x00\r\n")
+            or any(ord(c) < 33 or ord(c) == 127 for c in branch)
+            or any(not p or p.startswith(".") or p.endswith(".lock") for p in branch.split("/"))
+        ):
+            raise TeaError("invalid_input", "Expected a literal Git branch name.")
+        return branch
+
+    @field_validator("protected_branches")
+    @classmethod
+    def validate_protected(cls, values: list[str]) -> list[str]:
+        try:
+            return sorted(set(cls.normalize_branch(v) for v in values))
+        except TeaError:
+            raise ValueError("Invalid protected branch") from None
+
+    def operation_enabled(self, operation: str) -> bool:
+        return operation in self.allowed_write_operations and not (
+            operation in MERGES and (self.protected_branches or self.protect_default_branch)
+        )
+
+    def authorize_operation(self, repo: str, operation: str) -> None:
+        self.authorize_write(repo)
+        if not self.operation_enabled(operation):
+            raise TeaError("write_disabled", "Operation is disabled by the configured write policy.")
+
+    def authorize_branch(self, branch: str, default_branch: str | None = None) -> str:
+        branch = self.normalize_branch(branch)
+        if branch in self.protected_branches or (self.protect_default_branch and branch == default_branch):
+            raise TeaError("protected_branch", "Local policy protects this branch.")
+        return branch
+
     def network_environment(self) -> dict[str, str]:
         if not self.trust_env:
             return {}
@@ -120,6 +183,13 @@ def load_settings(path: str | None = None) -> Settings:
         if "cache_dir" in data:
             cache = Path(data["cache_dir"])
             data["cache_dir"] = cache if cache.is_absolute() else directory / cache
+        if "tool_profile" not in data:
+            warnings.warn(
+                "Legacy configuration uses full profile; write operations now default to six safe operations. Add tool_profile explicitly.",
+                UserWarning,
+                stacklevel=2,
+            )
+        data.setdefault("tool_profile", "full")
         settings = Settings(**data)
     else:
         settings = Settings()

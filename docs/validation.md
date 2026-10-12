@@ -1,6 +1,19 @@
 # 验证记录
 
-更新日期：2026-10-10。这个记录区分离线实现验证、真实平台调用和实际客户端运行。
+更新日期：2026-10-12。这个记录区分离线实现验证、真实平台调用和实际客户端运行。
+
+## 0.3 本轮验证
+
+- Windows Python 3.13.1 / Git 2.45.1：122 项通过、2 项 POSIX 所有者/FIFO 测试按平台跳过；Ruff 通过。新增分页响应头、Swagger 降级、三档工具及两种 MCP 协议、跨入口许可、目录文件路径、缓存权限/ACL/链接、prune、TTL、流式 Diff 与取消回收测试。
+- bdgit 完整闭环通过，标识 `83029f185356`：Issue #10 关闭，PR #11 合并到临时基准分支，两条分支删除。记录 `artifacts/live-83029f185356.json`。
+- Codex CLI 0.162.0：Core 12 项工具发现、实际仓库与 README 读取通过；六种受控写操作通过，PR #14、Issue #15 已关闭，两条测试分支删除。记录 `artifacts/codex-v03-read.jsonl`、`artifacts/codex-v03-write.jsonl`。
+- Claude Code 2.1.195：相同读取与六种受控写操作通过，PR #12、Issue #13 已关闭，两条测试分支删除。记录 `artifacts/claude-v03-read.jsonl`、`artifacts/claude-v03-write.jsonl`。
+- 两个客户端的真实 Git 提交作者和提交者均核验为登录账号，均有 COMMENT 审查；确认仅清理本次标识对象，仓库原默认分支保持不变。汇总 `artifacts/client-v03-results.json`。
+- DeepSeek Harness、Kimi Code CLI：配置生成及服务端协议回归通过；本机没有可用模型账号，按用户选择将真实客户端调用记为待实测。配置生成不等于客户端验收完成。
+- 新配置默认 Core；专用 Review 配置实际发现 30 项工具。真实平台默认分支与非名单仓库写入拒绝、合并隐藏探针通过，未创建对象。记录 `artifacts/live-v03-policy.json`。
+- 最终 0.3.0 wheel/sdist 隔离构建及 Twine 检查通过，干净虚拟环境安装与 stdio 新旧协议通过；待提交文件和安装包的凭据及私有文件扫描通过。CI 结果将在推送后更新。本轮未上传 PyPI。
+
+Swagger 降级用模拟实例验证，尚未在关闭 Swagger 的真实 Gitea 实例联调；没有据此宣称兼容所有版本。大文件局部读取、历史/Fork PR 降级、原子 Assignee 和缓存清理仍为后续任务。
 
 ## 0.2 本轮验证
 
@@ -34,7 +47,7 @@
 
 ## 尚未验证
 
-- **三个客户端的真实平台调用**：当前只验证标准 MCP 和配置生成。已发现 Codex CLI 0.162.0、Claude Code 2.1.195；没有发现 `dsh` 命令。这些版本信息不代表已经完成客户端联调。
+- **0.2 时的三个客户端真实平台调用**：当前只验证标准 MCP 和配置生成。已发现 Codex CLI 0.162.0、Claude Code 2.1.195；没有发现 `dsh` 命令。这些版本信息不代表已经完成客户端联调。
 - **TestPyPI/PyPI 上传**：未执行。当前交付本地可安装的 wheel 与源码包。
 
 ## 后续平台验收
@@ -43,9 +56,9 @@
 
 ```powershell
 python -m jasminetea_mcp doctor --config examples/test-repository.toml --repo hndx202426010302/JasmineTea-test
-python scripts/live_acceptance.py --config examples/test-repository.toml
+python scripts/live_acceptance.py --config examples/acceptance.toml
 ```
 
 验收脚本仅允许指定 bdgit 实例和测试仓库。空仓库会在隔离分支创建初始提交；平台若将它设为默认分支，清理时保留并明确记录。脚本生成唯一 `jasminetea-test/` 分支与 Issue/PR 标记，合并到测试基准分支，并把记录保存到忽略的 `artifacts/`。清理其他分支使用精确 SHA lease；发现额外提交会保留分支并报告清理失败。Issue/PR 保留为已关闭或已合并对象，便于审计。真实 stdio 验证使用 `python scripts/live_stdio.py`。
 
-还需分别在三个客户端完成读取和受控写入；其余声明支持的 API 也需逐项真实验证。完整协作 MCP 计划的验收条件尚未全部达成。
+0.3 已补齐 Codex、Claude Code；DeepSeek Harness、Kimi 仍待真实账号联调，其余声明支持的 API 也需逐项真实验证。完整协作 MCP 计划的验收条件尚未全部达成。

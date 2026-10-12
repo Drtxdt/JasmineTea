@@ -7,6 +7,7 @@ import pytest
 
 from jasminetea_mcp.api import GiteaClient
 from jasminetea_mcp.config import Settings
+from jasminetea_mcp.profiles import WRITE_OPERATIONS
 from jasminetea_mcp.service import TeaService
 
 
@@ -19,7 +20,9 @@ def schema():
 def settings(tmp_path, monkeypatch):
     monkeypatch.setenv("BDGIT_TOKEN", "unit-test-token")
     return Settings(
-        base_url="https://example.test", write_repositories=["owner/repo"], cache_dir=tmp_path / "cache"
+        base_url="https://example.test", write_repositories=["owner/repo"], cache_dir=tmp_path / "cache",
+        tool_profile="full", allowed_write_operations=sorted(WRITE_OPERATIONS),
+        protected_branches=[], protect_default_branch=False
     )
 
 

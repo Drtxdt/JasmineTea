@@ -1,0 +1,14 @@
+# Only for the disposable acceptance repository; never copy this policy to coursework.
+base_url = "https://bdgit.educoder.net"
+token_env = "BDGIT_TOKEN"
+tool_profile = "full"
+write_repositories = ["hndx202426010302/JasmineTea-test"]
+allowed_write_operations = [
+  "create_branch", "commit_files", "create_tree", "create_commit",
+  "create_issue", "add_comment_to_issue", "add_review_to_pr",
+  "create_pull_request", "merge_pull_request", "update_issue",
+  "update_pull_request", "delete_branch",
+]
+protected_branches = []
+protect_default_branch = false
+cache_dir = "../.cache/acceptance-v03"

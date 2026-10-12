@@ -1,3 +1,4 @@
+tool_profile = "core"
 base_url = "https://bdgit.educoder.net"
 token_env = "BDGIT_TOKEN"
 write_repositories = []

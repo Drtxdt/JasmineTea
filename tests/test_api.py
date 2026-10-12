@@ -5,8 +5,15 @@ import pytest
 
 from jasminetea_mcp.api import GiteaClient
 from jasminetea_mcp.errors import TeaError
+from jasminetea_mcp.policy import WritePermit, permitted
 
 
+@pytest.fixture(autouse=True)
+def api_issue_permit(settings):
+    # Low-level transport tests operate under a prevalidated issue-creation permit.
+    with permitted(WritePermit(id(settings), "owner/repo", "create_issue",
+                               path="/repos/{owner}/{repo}/issues", method="post")):
+        yield
 @pytest.mark.parametrize(
     "endpoint",
     [

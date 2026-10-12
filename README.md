@@ -6,7 +6,7 @@
 
 ## 快速开始
 
-你需要 Python 3.11 或更新版本、Git，以及一个支持本地 MCP 的客户端。目前提供了 Codex、DeepSeek Harness 和 Claude Code 的配置示例。
+你需要 Python 3.11 或更新版本、Git，以及一个支持本地 MCP 的客户端。目前提供了 Codex、DeepSeek Harness、Claude Code 和 Kimi Code CLI 的配置示例。
 
 **目前还没有发布到 PyPI，请先从源码安装。**
 
@@ -54,27 +54,38 @@ BDGIT_TOKEN=你自己的Token
 
 > 使用 jasminetea 查看我的课程仓库，读取默认分支的 README，再看看最近几次提交。先不要修改代码。
 
-你不需要另外开一个终端一直运行服务，客户端会启动它。Linux、DeepSeek Harness 和 Claude Code 的步骤见[安装文档](docs/agent-install.md)。
+你不需要另外开一个终端一直运行服务，客户端会启动它。Linux、DeepSeek Harness、Claude Code 和 Kimi 的步骤见[安装文档](docs/agent-install.md)。
 
 ## 能做什么
 
 目前可以读取仓库文件和提交、搜索代码、比较分支，也可以处理 Issue、评论、标签、PR、审查与合并。
 
-**默认只读，只显示读取工具。** 如果你确实需要 AI 修改某个仓库，在自己的 `config.toml` 中添加它：
+**默认只读，只显示读取工具。** 如果你确实需要 AI 修改某个仓库，在自己的 `config.toml` 中切换到 Review 档案，再添加它：
 
 ```toml
 base_url = "https://bdgit.educoder.net"
 token_env = "BDGIT_TOKEN"
+tool_profile = "review"
 write_repositories = ["你的用户名/你的仓库名"]
 ```
 
-修改名单后重启服务，才会显示写入工具。只有名单里的仓库允许写入，你的账号也必须有对应权限。其他 Gitea 平台可以修改 `base_url`，仓库名仍然使用 `owner/name`。
+修改后重启服务。默认只开放建分支、分支提交、开 Issue/PR、评论和审查；其他写操作要单独加入 `allowed_write_operations`。默认保护 main、master 和仓库默认分支；保护开启时，合并由你在平台上操作。只有名单里的仓库允许写入，你的账号也必须有对应权限。其他 Gitea 平台可以修改 `base_url`，仓库名仍然使用 `owner/name`。
+
+工具也可以按用途选。第一次安装默认 Core，只有 12 个读代码常用工具；Review 增加 Issue、PR 和审查；Full 保留完整工具组，仍然受写入名单限制。老配置没写 `tool_profile` 时保留 Full，但写入权限会采用新的默认限制。
+
+Kimi 的接入示例可以这样生成，把路径换成你的配置：
+
+```sh
+python -m jasminetea_mcp config-example --client kimi --config /你的绝对路径/config.toml
+```
+
+将输出合并到 Kimi Code 的 `~/.kimi-code/mcp.json`，保留其他条目；重新开会话，用 `/mcp` 检查连接。这里指维护中的 Kimi Code CLI，旧版 kimi-cli 的目录和命令不同，别混着用。
 
 平台没有的功能，我们也没法凭空变出来。例如当前 bdgit 没有公开 Actions、PR 草稿和审查线程解决状态的接口，会话锁定也缺少必要字段。这些操作会明确说明不支持。
 
 提交的作者和提交者固定为你的登录账号，AI 不能指定其他人。Git 作者字段本身不能作为贡献证明，课程计分还要结合平台记录。
 
-完整列表见[能力对照](docs/capabilities.md)。其中部分能力按 Gitea 的方式实现，不保证和 GitHub 完全相同。我们已在测试仓库跑通过提交、Issue、PR、审查和合并，但还没有把每个 API 都逐项实测，三个客户端的实际联调也还要继续补。具体见[验证记录](docs/validation.md)。
+完整列表见[能力对照](docs/capabilities.md)。其中部分能力按 Gitea 的方式实现，不保证和 GitHub 完全相同。我们已在测试仓库跑通过提交、Issue、PR、审查和合并，但还没有把每个 API 都逐项实测，Codex 和 Claude Code 已完成真实读取及受控写入；DeepSeek Harness、Kimi 的真实模型调用仍待账号联调。具体见[验证记录](docs/validation.md)。
 
 ## 原理
 
@@ -88,7 +99,7 @@ write_repositories = ["你的用户名/你的仓库名"]
 
 ## 计划
 
-- 完成 Codex、DeepSeek Harness 和 Claude Code 的实际联调。
+- 补齐 DeepSeek Harness、Kimi Code CLI 的真实账号联调。
 - 补齐更多 Gitea API 的真实测试，继续记录各个平台的差异。
 - 发布到 PyPI，让安装更省事。
 - 后续再考虑远程服务和 ChatGPT 网页接入。

@@ -1,5 +1,6 @@
 import base64
 import hashlib
+import json
 import os
 import re
 import shutil
@@ -14,8 +15,10 @@ from uuid import uuid4
 
 from filelock import FileLock, Timeout
 
+from .cache_security import private_path
 from .config import Settings, file_path, repository
 from .errors import TeaError
+from .policy import cancel_event, require_permit
 
 
 def object_sha(value: str) -> str:
@@ -36,11 +39,26 @@ class GitBackend:
         token = self.settings.token()
         authorization = base64.b64encode(f"{self.login}:{token}".encode()).decode()
         allowed = {
-            "PATH", "SYSTEMROOT", "WINDIR", "COMSPEC", "PATHEXT", "TEMP", "TMP", "TMPDIR",
-            "HOME", "USERPROFILE", "HOMEDRIVE", "HOMEPATH", "APPDATA", "LOCALAPPDATA",
+            "PATH",
+            "SYSTEMROOT",
+            "WINDIR",
+            "COMSPEC",
+            "PATHEXT",
+            "TEMP",
+            "TMP",
+            "TMPDIR",
+            "HOME",
+            "USERPROFILE",
+            "HOMEDRIVE",
+            "HOMEPATH",
+            "APPDATA",
+            "LOCALAPPDATA",
         }
-        env = {k: v for k, v in os.environ.items()
-               if k.upper() in allowed and k.upper() != self.settings.token_env.upper()}
+        env = {
+            k: v
+            for k, v in os.environ.items()
+            if k.upper() in allowed and k.upper() != self.settings.token_env.upper()
+        }
         env.update(
             {
                 "GIT_TERMINAL_PROMPT": "0",
@@ -84,10 +102,13 @@ class GitBackend:
             code, message = "authentication_required", "Git authentication failed; verify the token."
         elif b"protected branch" in detail or b"protected branches" in detail:
             code, message = "protected_branch", "The platform rejected an update to a protected branch."
-        elif any(x in detail for x in (b"permission denied", b"access denied", b"error: 403", b"not permitted")):
+        elif any(
+            x in detail for x in (b"permission denied", b"access denied", b"error: 403", b"not permitted")
+        ):
             code, message = "forbidden", "Git access was denied; check repository and token permissions."
-        elif rejected and any(x in b" ".join(rejected).lower()
-                              for x in (b"stale info", b"non-fast-forward", b"fetch first")):
+        elif rejected and any(
+            x in b" ".join(rejected).lower() for x in (b"stale info", b"non-fast-forward", b"fetch first")
+        ):
             code, message = "conflict", "Remote branch changed or the update is not fast-forward."
         elif rejected:
             code, message = "remote_rejected", "The remote rejected the update; check branch policies."
@@ -110,6 +131,8 @@ class GitBackend:
     ) -> bytes:
         if not self.git:
             raise TeaError("git_unavailable", "Install Git to use this capability.")
+        if writing and directory:
+            (directory / ".ready").unlink(missing_ok=True)
         command = [self.git] + (["--git-dir", str(directory)] if directory else []) + args
         try:
             result = subprocess.run(
@@ -117,7 +140,11 @@ class GitBackend:
                 input=data,
                 capture_output=True,
                 env=env or self._environment(),
-                timeout=self.settings.timeout_seconds * 3,
+                timeout=(
+                    self.settings.git_fetch_timeout_seconds
+                    if args[0] == "fetch"
+                    else self.settings.timeout_seconds * 3
+                ),
                 shell=False,
                 check=False,
             )
@@ -139,55 +166,169 @@ class GitBackend:
         owner, name = repository(repo).split("/")
         return self.settings.base_url + "/" + quote(owner, safe="") + "/" + quote(name, safe="") + ".git"
 
+    def _text_budget(self):
+        # JSON escaping can expand a byte sixfold; leave room for metadata and file stats.
+        return min(
+            self.settings.max_text_bytes,
+            self.settings.max_response_bytes,
+            max(0, (self.settings.max_tool_bytes - 4096) // 12),
+        )
+
+    def _stream(self, directory, args, budget):
+        if not self.git:
+            raise TeaError("git_unavailable", "Install Git to use this capability.")
+        try:
+            process = subprocess.Popen(
+                [self.git, "--git-dir", str(directory), *args],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                env=self._environment(),
+                shell=False,
+            )
+        except OSError:
+            raise TeaError("git_unavailable", "Git could not be started.") from None
+        chunks, stopped, errors = Queue(maxsize=4), threading.Event(), bytearray()
+
+        def output():
+            try:
+                while not stopped.is_set():
+                    value = process.stdout.read1(65536)
+                    while not stopped.is_set():
+                        try:
+                            chunks.put(value, timeout=0.1)
+                            break
+                        except Full:
+                            continue
+                    if not value:
+                        break
+            finally:
+                process.stdout.close()
+
+        def error():
+            try:
+                while value := process.stderr.read1(8192):
+                    errors.extend(value[: max(0, 8192 - len(errors))])
+            finally:
+                process.stderr.close()
+
+        readers = [threading.Thread(target=output, daemon=True), threading.Thread(target=error, daemon=True)]
+        for reader in readers:
+            reader.start()
+        deadline = time.monotonic() + self.settings.timeout_seconds * 3
+        data = bytearray()
+        try:
+            while True:
+                remaining = deadline - time.monotonic()
+                cancelled = cancel_event.get()
+                if cancelled is not None and cancelled.is_set():
+                    raise TeaError("cancelled", "Git output was cancelled.")
+                if remaining <= 0:
+                    raise TeaError("git_timeout", "Git output timed out.")
+                try:
+                    value = chunks.get(timeout=min(remaining, 0.1))
+                except Empty:
+                    continue
+                if len(data) + len(value) > budget:
+                    data.extend(value[: max(0, budget - len(data))])
+                    return bytes(data), True
+                data.extend(value)
+                if not value:
+                    try:
+                        code = process.wait(timeout=max(0.001, deadline - time.monotonic()))
+                    except subprocess.TimeoutExpired:
+                        raise TeaError("git_timeout", "Git output timed out.") from None
+                    if code:
+                        raise self._failure(args, bytes(data), bytes(errors), False)
+                    return bytes(data), False
+        finally:
+            stopped.set()
+            if process.poll() is None:
+                process.kill()
+            process.wait()
+            for reader in readers:
+                reader.join(timeout=2)
+
+    def _fetch(self, directory):
+        self._run(
+            directory,
+            [
+                "fetch",
+                "--prune",
+                "--no-auto-gc",
+                "--no-tags",
+                "origin",
+                "+refs/heads/*:refs/remotes/origin/*",
+                "+refs/tags/*:refs/jasminetea/origin/tags/*",
+            ],
+        )
+        marker = private_path(directory / ".ready", directory=False)
+        marker.write_text(json.dumps({"format": 2, "fetched_at": time.time()}), encoding="utf-8")
+
+    def _cache_info(self, directory):
+        try:
+            state = json.loads((directory / ".ready").read_text())
+            if not isinstance(state, dict) or state.get("format") != 2:
+                return {}
+            fetched = float(state["fetched_at"])
+            return {"cache_fetched_at": fetched, "cache_age_seconds": max(0, time.time() - fetched)}
+        except (OSError, ValueError, TypeError, KeyError):
+            return {}
+
     @contextmanager
-    def _cache(self, repo: str, *, refresh: bool = False):
+    def _cache(self, repo: str, *, refresh: bool = False, remote_read: bool = False):
         repo = repository(repo)
         identity = self.settings.base_url + "|" + repo + "|" + self.settings.token()
         key = hashlib.sha256(identity.encode()).hexdigest()
-        root = self.settings.cache_dir.resolve()
         try:
-            root.mkdir(parents=True, exist_ok=True)
-        except OSError:
-            raise TeaError(
-                "cache_unavailable", "Repository cache is not writable; configure cache_dir."
-            ) from None
-        directory = root / (key + ".git")
-        try:
-            with FileLock(str(root / (key + ".lock")), timeout=self.settings.timeout_seconds):
+            root = private_path(self.settings.cache_dir)
+            lock = private_path(root / (key + ".lock"), directory=False)
+            with FileLock(str(lock), timeout=self.settings.timeout_seconds, mode=0o600):
+                directory = private_path(root / (key + ".git"))
                 if not (directory / "HEAD").exists():
                     self._run(None, ["init", "--bare", str(directory)])
                     self._run(directory, ["remote", "add", "origin", self._remote_url(repo)])
                     refresh = True
                 ready = directory / ".ready"
-                if refresh or not ready.is_file():
-                    self._run(
-                        directory,
-                        [
-                            "fetch",
-                            "--no-tags",
-                            "origin",
-                            "+refs/heads/*:refs/remotes/origin/*",
-                            "+refs/tags/*:refs/tags/*",
-                        ],
-                    )
-                    ready.write_bytes(b"1\n")
+                if ready.exists() or ready.is_symlink():
+                    private_path(ready, directory=False)
+                info = self._cache_info(directory)
+                expired = info.get("cache_age_seconds", float("inf")) >= self.settings.git_refresh_ttl_seconds
+                if refresh or not info or (remote_read and expired):
+                    self._fetch(directory)
                 yield directory
         except Timeout:
             raise TeaError("busy", "Repository cache is busy; try again later.") from None
+        except OSError:
+            raise TeaError("cache_unavailable", "Cache could not be accessed; verify cache_dir.") from None
+
+    def _resolve_fresh(self, directory, ref):
+        try:
+            return self._resolve(directory, ref)
+        except TeaError as error:
+            if error.code != "not_found_or_hidden":
+                raise
+            self._fetch(directory)
+            return self._resolve(directory, ref)
 
     def _resolve(self, directory: Path, ref: str) -> str:
         if re.fullmatch(r"[0-9a-fA-F]{40}|[0-9a-fA-F]{64}", ref):
-            return (
-                self._run(directory, ["rev-parse", "--verify", "--end-of-options", ref + "^{commit}"])
+            value = (
+                self._run(
+                    directory, ["rev-parse", "--verify", "--end-of-options", ref + "^{commit}"], check=False
+                )
                 .decode()
                 .strip()
             )
+            if re.fullmatch(r"[0-9a-f]{40}|[0-9a-f]{64}", value):
+                return value
+            raise TeaError("not_found_or_hidden", "Git commit could not be resolved.")
         self._branch(ref.removeprefix("refs/heads/").removeprefix("refs/tags/"))
-        candidates = (
-            [ref]
-            if ref.startswith("refs/tags/")
-            else ["refs/remotes/origin/" + ref.removeprefix("refs/heads/"), "refs/tags/" + ref]
-        )
+        if ref.startswith("refs/tags/"):
+            candidates = ["refs/jasminetea/origin/tags/" + ref.removeprefix("refs/tags/")]
+        elif ref.startswith("refs/heads/"):
+            candidates = ["refs/remotes/origin/" + ref.removeprefix("refs/heads/")]
+        else:
+            candidates = ["refs/remotes/origin/" + ref, "refs/jasminetea/origin/tags/" + ref]
         for candidate in candidates:
             value = (
                 self._run(
@@ -207,9 +348,9 @@ class GitBackend:
             raise TeaError("invalid_input", "Invalid branch name.")
         self._run(None, ["check-ref-format", "refs/heads/" + branch])
 
-    def resolve(self, repo: str, ref: str) -> str:
-        with self._cache(repo, refresh=True) as directory:
-            return self._resolve(directory, ref)
+    def resolve(self, repo: str, ref: str, force_refresh: bool = False) -> str:
+        with self._cache(repo, refresh=force_refresh, remote_read=True) as directory:
+            return self._resolve_fresh(directory, ref)
 
     def import_commit(self, repo: str, source_repo: str, sha: str) -> dict:
         """Fetch a fork PR's exact head from the same configured platform."""
@@ -236,38 +377,68 @@ class GitBackend:
                 },
             }
 
-    def commit_diff(self, repo: str, sha: str) -> dict:
+    def commit_diff(self, repo: str, sha: str, force_refresh: bool = False) -> dict:
         sha = object_sha(sha)
-        with self._cache(repo) as directory:
-            self._resolve(directory, sha)
-            raw = self._run(directory, ["show", "--format=", "--no-ext-diff", "--no-textconv", sha, "--"])
+        with self._cache(repo, refresh=force_refresh, remote_read=True) as directory:
+            self._resolve_fresh(directory, sha)
+            raw, truncated = self._stream(
+                directory,
+                ["show", "--format=", "--no-ext-diff", "--no-textconv", sha, "--"],
+                self._text_budget(),
+            )
             return {
                 "repo": repo,
                 "sha": sha,
                 "text": raw[: self.settings.max_text_bytes].decode("utf-8", "replace"),
-                "truncated": len(raw) > self.settings.max_text_bytes,
+                "truncated": truncated,
+                **self._cache_info(directory),
                 "storage": "local_git_cache",
             }
 
     def diff(
-        self, repo: str, base: str, head: str, path: str | None = None, merge_base: bool = False
+        self,
+        repo: str,
+        base: str,
+        head: str,
+        path: str | None = None,
+        merge_base: bool = False,
+        force_refresh: bool = False,
     ) -> dict:
         if path is not None:
             file_path(path)
-        with self._cache(repo, refresh=True) as directory:
-            base_sha, head_sha = self._resolve(directory, base), self._resolve(directory, head)
+        with self._cache(repo, refresh=force_refresh, remote_read=True) as directory:
+            base_sha, head_sha = self._resolve_fresh(directory, base), self._resolve_fresh(directory, head)
             comparison_base = (
                 self._run(directory, ["merge-base", base_sha, head_sha]).decode().strip()
                 if merge_base
                 else base_sha
             )
-            stats = self._run(directory, ["diff", "-M", "--numstat", "-z", comparison_base, head_sha])
+            stats, stats_truncated = self._stream(
+                directory,
+                [
+                    "diff",
+                    "-M",
+                    "--no-ext-diff",
+                    "--no-textconv",
+                    "--numstat",
+                    "-z",
+                    comparison_base,
+                    head_sha,
+                ],
+                self._text_budget() // 4,
+            )
             entries, index, fields = [], 0, stats.split(b"\0")
-            while index < len(fields) and fields[index]:
-                added, removed, name = fields[index].split(b"\t", 2)
+            while index < len(fields) - 1 and fields[index]:
+                parts = fields[index].split(b"\t", 2)
+                if len(parts) != 3:
+                    break
+                added, removed, name = parts
                 index += 1
                 old_name = None
                 if not name:
+                    if index + 2 >= len(fields):
+                        stats_truncated = True
+                        break
                     old_name, name = fields[index : index + 2]
                     index += 2
                 entry = {
@@ -284,8 +455,10 @@ class GitBackend:
                 for entry in entries:
                     if entry["previous_path"] and entry["previous_path"] != path:
                         paths.append(entry["previous_path"])
-            raw = self._run(
-                directory, ["diff", "-M", "--no-ext-diff", "--no-textconv", comparison_base, head_sha, *paths]
+            raw, truncated = self._stream(
+                directory,
+                ["diff", "-M", "--no-ext-diff", "--no-textconv", comparison_base, head_sha, *paths],
+                self._text_budget() // 2,
             )
             maximum = self.settings.max_text_bytes
             return {
@@ -295,25 +468,44 @@ class GitBackend:
                 "head_sha": head_sha,
                 "files": entries,
                 "diff": raw[:maximum].decode("utf-8", "replace"),
-                "truncated": len(raw) > maximum,
+                "truncated": truncated or stats_truncated,
+                "files_truncated": stats_truncated,
+                **self._cache_info(directory),
             }
 
-    def search_code(self, repo: str, ref: str, query: str, limit: int = 20) -> dict:
+    def search_code(
+        self, repo: str, ref: str, query: str, limit: int = 20, force_refresh: bool = False
+    ) -> dict:
         if not query or "\x00" in query or len(query) > 1024 or not 1 <= limit <= 100:
             raise TeaError("invalid_input", "Use a nonempty query and a limit between 1 and 100.")
-        with self._cache(repo, refresh=True) as directory:
-            sha = self._resolve(directory, ref)
-            return self._search_stream(directory, sha, query, limit, repo)
+        with self._cache(repo, refresh=force_refresh, remote_read=True) as directory:
+            sha = self._resolve_fresh(directory, ref)
+            return {**self._search_stream(directory, sha, query, limit, repo), **self._cache_info(directory)}
 
     def _search_stream(self, directory: Path, sha: str, query: str, limit: int, repo: str) -> dict:
         if not self.git:
             raise TeaError("git_unavailable", "Install Git to search code.")
-        args = ["grep", "--threads=1", "--no-color", "--no-textconv", "-n", "-I", "-F",
-                "--null", "-e", query, sha, "--"]
+        args = [
+            "grep",
+            "--threads=1",
+            "--no-color",
+            "--no-textconv",
+            "-n",
+            "-I",
+            "-F",
+            "--null",
+            "-e",
+            query,
+            sha,
+            "--",
+        ]
         try:
             process = subprocess.Popen(
-                [self.git, "--git-dir", str(directory), *args], stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE, env=self._environment(), shell=False,
+                [self.git, "--git-dir", str(directory), *args],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                env=self._environment(),
+                shell=False,
             )
         except OSError:
             raise TeaError("git_unavailable", "Git could not be started.") from None
@@ -340,12 +532,14 @@ class GitBackend:
             try:
                 while chunk := process.stderr.read1(8192):
                     if len(stderr) < 8192:
-                        stderr.extend(chunk[:8192 - len(stderr)])
+                        stderr.extend(chunk[: 8192 - len(stderr)])
             finally:
                 process.stderr.close()
 
-        readers = [threading.Thread(target=output_reader, daemon=True),
-                   threading.Thread(target=error_reader, daemon=True)]
+        readers = [
+            threading.Thread(target=output_reader, daemon=True),
+            threading.Thread(target=error_reader, daemon=True),
+        ]
         for reader in readers:
             reader.start()
         deadline = time.monotonic() + self.settings.timeout_seconds * 3
@@ -374,7 +568,7 @@ class GitBackend:
                         else:
                             break
                     value = bytes(buffer[:index])
-                    del buffer[:index + 1]
+                    del buffer[: index + 1]
                     if len(fields) < 2:
                         fields.append(value)
                     else:
@@ -382,8 +576,13 @@ class GitBackend:
                         fields = []
                         if not line.isdigit():
                             raise TeaError("invalid_response", "Invalid Git search record.")
-                        hits.append({"path": name.decode("utf-8", "replace").removeprefix(sha + ":"),
-                                     "line": int(line), "excerpt": value[:1000].decode("utf-8", "replace")})
+                        hits.append(
+                            {
+                                "path": name.decode("utf-8", "replace").removeprefix(sha + ":"),
+                                "line": int(line),
+                                "excerpt": value[:1000].decode("utf-8", "replace"),
+                            }
+                        )
                         if len(hits) > limit:
                             truncated = True
                             break
@@ -408,11 +607,13 @@ class GitBackend:
             for reader in readers:
                 reader.join(timeout=2)
 
-    def search_commits(self, repo: str, ref: str, query: str = "", limit: int = 20) -> dict:
+    def search_commits(
+        self, repo: str, ref: str, query: str = "", limit: int = 20, force_refresh: bool = False
+    ) -> dict:
         if not 1 <= limit <= 100:
             raise TeaError("invalid_input", "limit must be between 1 and 100.")
-        with self._cache(repo, refresh=True) as directory:
-            sha = self._resolve(directory, ref)
+        with self._cache(repo, refresh=force_refresh, remote_read=True) as directory:
+            sha = self._resolve_fresh(directory, ref)
             args = ["log", sha, f"--max-count={limit}", "--format=%H%x00%an%x00%aI%x00%s%x00"]
             if query:
                 args.extend(["--fixed-strings", "--grep=" + query])
@@ -443,7 +644,7 @@ class GitBackend:
         return self._run(directory, ["hash-object", "-w", "--stdin"], data=data).decode().strip()
 
     def create_blob(self, repo: str, content: str, encoding: str = "utf-8") -> dict:
-        self.settings.authorize_write(repo)
+        require_permit(self.settings, repo, operation="create_blob")
         with self._cache(repo) as directory:
             return {
                 "repo": repo,
@@ -512,7 +713,7 @@ class GitBackend:
             Path(str(index) + ".lock").unlink(missing_ok=True)
 
     def create_tree(self, repo: str, entries: list[dict], base_tree: str | None = None) -> dict:
-        self.settings.authorize_write(repo)
+        require_permit(self.settings, repo, operation="create_tree")
         with self._cache(repo) as directory:
             return {
                 "repo": repo,
@@ -556,7 +757,7 @@ class GitBackend:
     def create_commit(
         self, repo: str, tree: str, parents: list[str], message: str, author_name: str, author_email: str
     ) -> dict:
-        self.settings.authorize_write(repo)
+        require_permit(self.settings, repo, operation="create_commit")
         with self._cache(repo) as directory:
             sha = self._commit(directory, tree, parents, message, author_name, author_email)
             return {"repo": repo, "sha": sha, "storage": "local_git_cache", "published": False}
@@ -573,7 +774,9 @@ class GitBackend:
             self._run(directory, ["merge-base", "--is-ancestor", expected_sha, sha])
         except TeaError as error:
             if error.code == "git_error":
-                raise TeaError("conflict", "Update is not fast-forward; history rewrites are refused.") from None
+                raise TeaError(
+                    "conflict", "Update is not fast-forward; history rewrites are refused."
+                ) from None
             raise
         self._run(
             directory,
@@ -589,13 +792,13 @@ class GitBackend:
         return {"branch": branch, "previous_sha": expected_sha, "sha": sha, "published": True}
 
     def update_ref(self, repo: str, branch: str, sha: str, expected_sha: str) -> dict:
-        self.settings.authorize_write(repo)
+        require_permit(self.settings, repo, operation="update_ref", branch=branch)
         with self._cache(repo, refresh=True) as directory:
             self._resolve(directory, object_sha(sha))
             return {"repo": repo, **self._push(directory, branch, sha, expected_sha)}
 
     def create_branch(self, repo: str, branch: str, from_ref: str) -> dict:
-        self.settings.authorize_write(repo)
+        require_permit(self.settings, repo, operation="create_branch", branch=branch)
         self._branch(branch)
         with self._cache(repo, refresh=True) as directory:
             sha = self._resolve(directory, from_ref)
@@ -618,7 +821,7 @@ class GitBackend:
 
     def delete_branch(self, repo: str, branch: str, expected_sha: str) -> dict:
         """Used by test cleanup; deletion is conditional on the exact owned branch head."""
-        self.settings.authorize_write(repo)
+        require_permit(self.settings, repo, operation="delete_branch", branch=branch)
         self._branch(branch)
         expected_sha = object_sha(expected_sha)
         with self._cache(repo) as directory:
@@ -645,7 +848,7 @@ class GitBackend:
         author_name: str,
         author_email: str,
     ) -> dict:
-        self.settings.authorize_write(repo)
+        require_permit(self.settings, repo, operation="commit_files", branch=branch)
         with self._cache(repo, refresh=True) as directory:
             base = self._resolve(directory, branch)
             if base != object_sha(expected_sha):

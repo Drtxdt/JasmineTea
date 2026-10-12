@@ -135,7 +135,8 @@ async def run(config: str):
                 expected = ledger["branch_shas"][name]
                 if not expected:
                     raise TeaError("cleanup_refused", "Unknown post-merge branch SHA; preserved branch.")
-                await service._git(TEST_REPO, "delete_branch", name, expected)
+                async with service._write_permission("delete_branch", TEST_REPO, name):
+                    await service._git(TEST_REPO, "delete_branch", name, expected)
                 ledger["cleanup"].append({"branch": name, "deleted": True})
             except TeaError as error:
                 ledger["cleanup"].append({"branch": name, "error": error.as_dict()})
@@ -154,7 +155,7 @@ async def run(config: str):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--config", default="examples/test-repository.toml")
+    parser.add_argument("--config", default="examples/acceptance.toml")
     args = parser.parse_args()
     try:
         raise SystemExit(0 if asyncio.run(run(args.config)) else 1)

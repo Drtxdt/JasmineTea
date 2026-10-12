@@ -1,6 +1,8 @@
 import asyncio
 import base64
 import inspect
+import threading
+from contextlib import asynccontextmanager
 from functools import wraps
 from typing import Literal
 from urllib.parse import quote
@@ -9,6 +11,8 @@ from .api import GiteaClient
 from .config import Settings, file_path, repo_endpoint, repository
 from .errors import TeaError
 from .git_backend import GitBackend, object_sha
+from .policy import WritePermit, cancel_event, permitted
+from .profiles import BRANCH_WRITES, CORE, REVIEW, SAFE_WRITES
 
 
 def exposed(
@@ -26,12 +30,33 @@ def exposed(
         async def wrapped(*args, **kwargs):
             if write:
                 bound = signature.bind(*args, **kwargs)
-                args[0].settings.authorize_write(bound.arguments["repo"])
+                bound.apply_defaults()
+                service = args[0]
+                async with service._write_permission(
+                    function.__name__, bound.arguments["repo"], bound.arguments.get("branch"), path, method
+                ):
+                    if path:
+                        await service.api.require(path, method, fields=list(fields))
+                    if "branch" in bound.arguments:
+                        bound.arguments["branch"] = service.settings.normalize_branch(
+                            bound.arguments["branch"]
+                        )
+                    return await function(*bound.args, **bound.kwargs)
             return await function(*args, **kwargs)
 
         wrapped.tea_meta = {
             "write": write,
-            "destructive": destructive,
+            "destructive": destructive
+            or (
+                write
+                and (
+                    function.__name__.startswith(
+                        ("update_", "remove_", "delete_", "dismiss_", "lock_", "unlock_")
+                    )
+                    or function.__name__
+                    in ("commit_files", "merge_pull_request", "enable_auto_merge", "add_issue_assignees")
+                )
+            ),
             "path": path,
             "method": method,
             "fields": fields,
@@ -60,8 +85,35 @@ class TeaService:
         }
 
     def registered_methods(self) -> dict:
-        return {name: method for name, method in self.methods().items()
-                if self.settings.write_repositories or not method.tea_meta["write"]}
+        group = CORE if self.settings.tool_profile == "core" else REVIEW | set(SAFE_WRITES)
+        return {
+            name: method
+            for name, method in self.methods().items()
+            if (self.settings.tool_profile == "full" or name in group)
+            and (
+                not method.tea_meta["write"]
+                or (self.settings.write_repositories and self.settings.operation_enabled(name))
+            )
+        }
+
+    @asynccontextmanager
+    async def _write_permission(self, operation, repo, branch=None, path=None, method="get"):
+        self.settings.authorize_operation(repo, operation)
+        if operation in BRANCH_WRITES:
+            branch = self.settings.authorize_branch(branch)
+            if self.settings.protect_default_branch:
+                metadata = (await self.get_repo(repo))["data"]
+                if not isinstance(metadata, dict):
+                    raise TeaError("invalid_response", "Expected repository metadata.")
+                default = metadata.get("default_branch")
+                if not isinstance(default, str) or not default:
+                    raise TeaError("write_disabled", "Cannot establish the repository default branch.")
+                self.settings.authorize_branch(branch, default)
+        await self.api.swagger()
+        if self.api.schema_source != "live":
+            raise TeaError("write_disabled", "Writes require a live API definition.")
+        with permitted(WritePermit(id(self.settings), repo, operation, branch, path, method)):
+            yield
 
     async def _commit_identity(self) -> tuple[str, str]:
         if self._identity is None:
@@ -108,7 +160,15 @@ class TeaService:
             user = await self.get_profile()
             self.git.login = user["login"]
             self._git_identity_ready = True
-        result = await asyncio.to_thread(getattr(self.git, operation), repo, *args)
+        cancelled = threading.Event()
+        token = cancel_event.set(cancelled)
+        try:
+            result = await asyncio.to_thread(getattr(self.git, operation), repo, *args)
+        except asyncio.CancelledError:
+            cancelled.set()
+            raise
+        finally:
+            cancel_event.reset(token)
         if isinstance(result, dict):
             result["url"] = self._link(repo)
         return result
@@ -116,33 +176,80 @@ class TeaService:
     @exposed()
     async def get_capabilities(self) -> dict:
         """Report all 89 reference capabilities and the configured platform's advertised support."""
-        from .parity import capability_report
-
         try:
             schema = await self.api.swagger()
         except TeaError as error:
             return {
                 "platform": self.settings.base_url,
                 "schema_verified": False,
+                "schema_source": self.api.schema_source,
+                "writes_available": False,
+                "tool_profile": self.settings.tool_profile,
                 "registered_tools": sorted(self.registered_methods()),
                 "error": error.as_dict(),
-                "capabilities": capability_report(None, self.methods(), bool(self.git.git)),
+                "capabilities": self._capability_rows(None),
             }
         return {
             "platform": self.settings.base_url,
-            "schema_verified": True,
+            "schema_verified": self.api.schema_source == "live",
+            "schema_source": self.api.schema_source,
+            "tool_profile": self.settings.tool_profile,
+            "allowed_write_operations": [
+                n for n in self.settings.allowed_write_operations if self.settings.operation_enabled(n)
+            ],
+            "protected_branches": self.settings.protected_branches,
+            "protect_default_branch": self.settings.protect_default_branch,
+            "writes_available": self.api.schema_source == "live",
             "registered_tools": sorted(self.registered_methods()),
             "version": schema.get("info", {}).get("version"),
             "write_repositories": self.settings.write_repositories,
-            "capabilities": capability_report(schema, self.methods(), bool(self.git.git)),
+            "capabilities": self._capability_rows(schema),
         }
+
+    def _capability_rows(self, schema):
+        from .parity import capability_report
+
+        compatibility = self.api.schema_source == "compatibility"
+        rows = capability_report(None if compatibility else schema, self.methods(), bool(self.git.git))
+        registered = self.registered_methods()
+        for row in rows:
+            method = self.methods().get(row["tool"])
+            row["registered"] = row["tool"] in registered
+            row["enabled"] = row["registered"] and not (self.api.schema_source != "live" and row.get("write"))
+            basic_read = (
+                method is not None
+                and method.tea_meta["path"] in (schema or {}).get("paths", {})
+                and method.tea_meta["method"] == "get"
+            )
+            if compatibility and method and method.tea_meta["path"] and not basic_read:
+                row["enabled"] = False
+                row["blocked_reason"] = "not_in_basic_read_compatibility"
+            row["schema_source"] = self.api.schema_source
+            if (
+                compatibility
+                and method
+                and not row.get("write")
+                and method.tea_meta["path"] in schema["paths"]
+            ):
+                row["status"] = "compatibility"
+            if not row["enabled"] and method and "blocked_reason" not in row:
+                row["blocked_reason"] = (
+                    "live_schema_required"
+                    if self.api.schema_source != "live" and row.get("write")
+                    else "tool_profile_or_write_policy"
+                )
+        return rows
 
     @exposed(path="/user")
     async def get_profile(self) -> dict:
         """Read the authenticated Gitea user's profile."""
         user = await self.api.request("GET", "/user")
-        if (not isinstance(user, dict) or not isinstance(user.get("login"), str)
-                or not user["login"].strip() or any(c in user["login"] for c in "\r\n\x00<>")):
+        if (
+            not isinstance(user, dict)
+            or not isinstance(user.get("login"), str)
+            or not user["login"].strip()
+            or any(c in user["login"] for c in "\r\n\x00<>")
+        ):
             raise TeaError("invalid_response", "Platform returned an invalid user identity.")
         return user
 
@@ -211,6 +318,7 @@ class TeaService:
             raise TeaError(
                 "invalid_input", "Authentication and impersonation query parameters are forbidden."
             )
+        await self.api.swagger()
         is_text = "/raw/" in path or path.endswith((".diff", ".patch"))
         data = await self.api.request("GET", path, params=params, text=is_text)
         if is_text:
@@ -319,7 +427,7 @@ class TeaService:
             return await self._git(repo, "read_object", sha, "commit")
 
     @exposed(path="/repos/{owner}/{repo}/git/commits/{sha}.{diffType}")
-    async def get_diff(self, repo: str, sha: str) -> dict:
+    async def get_diff(self, repo: str, sha: str, force_refresh: bool = False) -> dict:
         """Read a bounded commit diff; sha is a full commit SHA."""
         try:
             data = (await self._get(repo, "/git/commits/" + object_sha(sha) + ".diff", text=True))["data"]
@@ -327,7 +435,7 @@ class TeaService:
             if error.code != "not_found_or_hidden":
                 raise
             await self.get_repo(repo)
-            return await self._git(repo, "commit_diff", sha)
+            return await self._git(repo, "commit_diff", sha, force_refresh)
         return self._text_result(repo, data, sha=sha)
 
     def _text_result(self, repo: str, text: str, **metadata):
@@ -342,22 +450,39 @@ class TeaService:
 
     @exposed()
     async def compare_commits(
-        self, repo: str, base: str, head: str, path: str | None = None, merge_base: bool = False
+        self,
+        repo: str,
+        base: str,
+        head: str,
+        path: str | None = None,
+        merge_base: bool = False,
+        force_refresh: bool = False,
     ) -> dict:
         """Compare two refs using bare Git; report resolved SHAs, file stats and bounded diff."""
-        return await self._git(repo, "diff", base, head, path, merge_base)
+        return await self._git(repo, "diff", base, head, path, merge_base, force_refresh)
 
     @exposed()
-    async def search(self, repo: str, query: str, ref: str | None = None, limit: int = 20) -> dict:
+    async def search(
+        self, repo: str, query: str, ref: str | None = None, limit: int = 20, force_refresh: bool = False
+    ) -> dict:
         """Literal case-sensitive code search in one authorized repository, using bare Git."""
-        return await self._git(repo, "search_code", await self._ref(repo, ref), query, limit)
+        return await self._git(repo, "search_code", await self._ref(repo, ref), query, limit, force_refresh)
+
+    @exposed()
+    async def search_code(
+        self, repo: str, query: str, ref: str | None = None, limit: int = 20, force_refresh: bool = False
+    ) -> dict:
+        """Search literal code; search is retained as a compatibility alias."""
+        return await self.search(repo, query, ref, limit, force_refresh)
 
     @exposed()
     async def search_commits(
-        self, repo: str, query: str = "", ref: str | None = None, limit: int = 20
+        self, repo: str, query: str = "", ref: str | None = None, limit: int = 20, force_refresh: bool = False
     ) -> dict:
         """Search commit messages in one repository; empty query lists recent commits."""
-        return await self._git(repo, "search_commits", await self._ref(repo, ref), query, limit)
+        return await self._git(
+            repo, "search_commits", await self._ref(repo, ref), query, limit, force_refresh
+        )
 
     @exposed(path="/repos/{owner}/{repo}/branches")
     async def search_branches(self, repo: str, query: str = "", page: int = 1, limit: int = 50) -> dict:
@@ -428,9 +553,7 @@ class TeaService:
         return await self._git(repo, "create_tree", entries, base_tree)
 
     @exposed(write=True)
-    async def create_commit(
-        self, repo: str, tree: str, parents: list[str], message: str
-    ) -> dict:
+    async def create_commit(self, repo: str, tree: str, parents: list[str], message: str) -> dict:
         """Create a local commit from a tree and parents; update_ref publishes it."""
         name, email = await self._commit_identity()
         return await self._git(repo, "create_commit", tree, parents, message, name, email)
@@ -468,9 +591,7 @@ class TeaService:
     @exposed(path="/repos/issues/search")
     async def list_recent_issues(self, page: int = 1, limit: int = 50) -> dict:
         """List recent issues across repositories accessible to this user."""
-        return await self.api.page(
-            "/repos/issues/search", page=page, limit=limit, params={"type": "issues"}
-        )
+        return await self.api.page("/repos/issues/search", page=page, limit=limit, params={"type": "issues"})
 
     @exposed(path="/repos/{owner}/{repo}/issues/{index}")
     async def fetch_issue(self, repo: str, index: int) -> dict:
@@ -661,7 +782,9 @@ class TeaService:
         return await self._page(repo, f"/pulls/{self._id(index)}/files", page, limit)
 
     @exposed()
-    async def fetch_pr_file_patch(self, repo: str, index: int, path: str) -> dict:
+    async def fetch_pr_file_patch(
+        self, repo: str, index: int, path: str, force_refresh: bool = False
+    ) -> dict:
         """Compare the PR merge base and head for one changed path; unrelated base changes yield patch=null."""
         file_path(path)
         pr = (await self.fetch_pr(repo, index))["data"]
@@ -671,7 +794,13 @@ class TeaService:
             raise TeaError("invalid_response", "PR base does not belong to the requested repository.")
         if head_repo != repo:
             await self._git(repo, "import_commit", head_repo, pr["head"]["sha"])
-        result = await self._git(repo, "diff", pr["base"]["sha"], pr["head"]["sha"], path, True)
+        result = await self._git(
+            repo, "diff", pr["base"]["sha"], pr["head"]["sha"], path, True, force_refresh
+        )
+        if not result["files"] and result.get("files_truncated"):
+            raise TeaError(
+                "response_too_large", "Truncated statistics cannot establish whether this file changed."
+            )
         patch = result.pop("diff")
         return {**result, "patch": patch if result["files"] else None}
 

@@ -90,7 +90,7 @@ async def test_readonly_tools_are_absent_and_capabilities_report_registration(ap
     async with Client(create_server(service), mode=mode) as client:
         tools = (await client.list_tools()).tools
         names = {tool.name for tool in tools}
-        assert len(names) == 37 and all(tool.annotations.read_only_hint for tool in tools)
+        assert len(names) == 38 and all(tool.annotations.read_only_hint for tool in tools)
         assert not {"create_commit", "commit_files", "create_issue", "update_ref"} & names
         capabilities = (await client.call_tool("get_capabilities", {})).structured_content
         assert set(capabilities["registered_tools"]) == names
@@ -105,7 +105,7 @@ async def test_commit_schema_no_longer_accepts_model_identity(api_service, mode)
     service, requests = api_service
     async with Client(create_server(service), mode=mode) as client:
         tools = (await client.list_tools()).tools
-        assert len(tools) == 68
+        assert len(tools) == 69
         for tool in tools:
             if tool.name in ("create_commit", "commit_files"):
                 properties = tool.input_schema["properties"]
@@ -130,6 +130,8 @@ async def test_unexpected_failure_is_sanitized_and_write_uncertainty_is_conserva
         raise AttributeError(secret)
 
     service.failure = MethodType(failure, service)
+    if writing:
+        service.settings.allowed_write_operations.append("failure")
     caplog.set_level(logging.ERROR)
     async with Client(create_server(service)) as client:
         result = await client.call_tool("failure", {"repo": "owner/repo"})
@@ -140,8 +142,9 @@ async def test_unexpected_failure_is_sanitized_and_write_uncertainty_is_conserva
 
 
 @pytest.mark.parametrize("user", [None, {}, {"login": "bad\nname"}, {"login": "owner", "email": "bad\nemail"}])
-async def test_invalid_identity_stops_before_git(settings, user):
+async def test_invalid_identity_stops_before_git(settings, user, schema):
     api = GiteaClient(settings, transport=httpx.MockTransport(lambda _: httpx.Response(200, json=user)))
+    api.schema = schema
     service = TeaService(settings, api=api)
     service.git.create_commit = lambda *_: pytest.fail("Git must not run")
     try:

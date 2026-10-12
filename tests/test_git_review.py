@@ -52,7 +52,7 @@ def test_legacy_cache_migration_and_failed_refresh_preserve_local_objects(local_
 
     monkeypatch.setattr(backend, "_run", fail_fetch)
     with pytest.raises(TeaError):
-        backend.resolve("owner/repo", "main")
+        backend.resolve("owner/repo", "main", True)
     assert (directory / ".ready").is_file()
     assert backend.read_object("owner/repo", blob["sha"], "blob")["data"]["content"] == base64.b64encode(b"preserve me").decode()
 
@@ -62,7 +62,9 @@ def test_empty_remote_is_a_successful_cache_initialization(tmp_path, settings):
     git("init", "--bare", str(remote))
     backend = GitBackend(settings)
     backend._remote_url = lambda _: str(remote)
-    assert backend.create_blob("owner/repo", "seed")["sha"]
+    from jasminetea_mcp.policy import WritePermit, permitted
+    with permitted(WritePermit(id(settings), "owner/repo", "create_blob")):
+        assert backend.create_blob("owner/repo", "seed")["sha"]
     assert next(settings.cache_dir.glob("*.git/.ready")).is_file()
 
 
@@ -123,12 +125,13 @@ def test_stream_timeout_reaps_child(settings, monkeypatch):
 
 
 @pytest.mark.parametrize("email", ["account@example.test", ""])
-async def test_service_commits_author_and_committer_are_authenticated_identity(local_git, email):
+async def test_service_commits_author_and_committer_are_authenticated_identity(local_git, email, schema):
     backend, remote, initial = local_git
     settings = backend.settings
     api = GiteaClient(settings, transport=httpx.MockTransport(
         lambda _: httpx.Response(200, json={"login": "owner", "full_name": "Ignored display name", "email": email})
     ))
+    api.schema = schema
     service = TeaService(settings, api=api, git=backend)
     try:
         result = await service.commit_files("owner/repo", "main", initial,

@@ -12,7 +12,7 @@ JasmineTea 目前没有发布到 PyPI，下文从源码安装。它在你的本�
 
 - 检测已有 Python、Git、客户端和安装目录，优先复用合适的环境，不覆盖已有目录或虚拟环境。
 - 仅在必要时询问目标客户端、安装位置、平台地址和 `owner/name`。默认平台是 bdgit；不知道仓库名时询问用户，不把作者的测试仓库当成所有人都能访问的仓库。
-- 配置默认 `write_repositories = []`。安装验收不创建 Issue、PR、分支，不修改或删除远端文件。
+- 配置默认 `tool_profile = "core"`、`write_repositories = []`。安装验收不创建 Issue、PR、分支，不修改或删除远端文件。
 - Token 由用户手动填写。不要读取、打印或复制已有 `.env`，不要通过聊天索取 Token，也不要将值写入客户端配置或命令参数。
 - 合并客户端配置前备份；只增改 JasmineTea 的条目，保留其他设置。同名服务器已经存在时核对配置，不重复注册。
 - 每一步核对退出码。终端命令成功、协议连接成功和实际仓库读取成功是三个不同结果；未完成的检查如实说明。
@@ -24,7 +24,7 @@ Windows PowerShell：
 ```powershell
 python --version
 git --version
-Get-Command codex, dsh, claude -ErrorAction SilentlyContinue
+Get-Command codex, dsh, claude, kimi -ErrorAction SilentlyContinue
 ```
 
 Linux：
@@ -35,9 +35,10 @@ git --version
 command -v codex
 command -v dsh
 command -v claude
+command -v kimi
 ```
 
-Python 需要 3.11 或更新版本，Git 用于代码搜索和 Git 操作。只需检测并安装用户选中的客户端，不要求三者同时存在。
+Python 需要 3.11 或更新版本，Git 用于代码搜索和 Git 操作。只需检测并安装用户选中的客户端，不要求四者同时存在。
 
 没有 Python/Git 时，Windows 可从 [Python](https://www.python.org/downloads/windows/) 和 [Git](https://git-scm.com/downloads/win) 官网安装，安装后重新打开终端。Linux 使用发行版包管理器；例如 Ubuntu/Debian 可用 `sudo apt install python3 python3-venv git`，但仍需核对 Python 版本，不要用旧版本替换系统 Python。
 
@@ -213,6 +214,28 @@ claude mcp list
 
 [Claude Code 官方配置说明](https://code.claude.com/docs/en/mcp)
 
+### Kimi Code CLI
+
+使用维护中的 [Kimi Code](https://moonshotai.github.io/kimi-code/en/guides/getting-started)，先检查 `kimi --version`。Windows 还需要 Git Bash。已有 Node.js 22.19+ 时可用 `npm install -g @moonshot-ai/kimi-code` 安装；没有 Node 时使用官方安装指南的独立版本。用户自行在 Kimi 中 `/login`，不要向 Agent 提供模型密钥。
+
+Windows 生成配置：
+
+```powershell
+& $teaPython -m jasminetea_mcp config-example --client kimi --config $teaConfig
+```
+
+Linux：
+
+```sh
+"$tea_python" -m jasminetea_mcp config-example --client kimi --config "$tea_config"
+```
+
+将输出合并到 `~/.kimi-code/mcp.json`；若设置了 `KIMI_CODE_HOME`，使用该目录。保留其他服务器，避免被项目级同名条目覆盖。示例使用绝对解释器、配置路径和 `cwd`，工具超时为 300 秒。不会生成 Token 值或 `${VAR}` 占位符，凭据放在 TOML 同目录的 `.env`。
+
+重新开始会话，在 `/mcp` 检查连接和工具。要求 Kimi 实际调用 `get_capabilities`、`get_repo` 和 `read_file`，不要用它内置的 Bash/Read 代替 MCP 验收。服务端 Core、Review、Full 档案适用于 Kimi；本轮不启用实验性的 deferred 工具加载，也不添加全工具自动批准规则。
+
+[Kimi MCP 文档](https://moonshotai.github.io/kimi-code/en/customization/mcp.html)
+
 ## 6. 验证一次实际读取
 
 在用户选定的客户端发出：
@@ -246,3 +269,11 @@ claude mcp list
 重新安装源码，重启客户端。默认只读现在只显示 37 个工具，可写名单非空时显示 68 个工具。`get_capabilities.registered_tools` 给出实际注册列表。`create_commit` 和 `commit_files` 不再接受作者参数，旧配置不需要添加身份。
 
 代理默认关闭。如果此前 Git 依赖环境代理，在 TOML 中设置 `trust_env = true`，重新运行 `config-example`，把输出合并到客户端配置。这会显式转发 HTTP_PROXY、HTTPS_PROXY、ALL_PROXY、NO_PROXY 和 SSL_CERT_FILE/SSL_CERT_DIR 的变量引用；不要把代理密码写进配置。
+
+## 升级到 0.3
+
+新配置显式写 `tool_profile = "core"`。旧 TOML 缺少该字段时保留 Full 并提示迁移；旧可写名单也只默认开放六种操作，不等于原来全部写工具都可用。需要协作时改为 Review，需要完整工具组时用 Full。始终保留仓库和操作名单。
+
+如果 `doctor` 报 `cache_permissions`，不要替用户递归修改权限。先确认缓存的真实位置和所有者，推荐改用新的私人 `cache_dir`；旧缓存需要保留时再按用户选择修复。POSIX 缓存根目录和 bare 仓库目录用 0700，锁及 `.ready` 用 0600；Windows 检查 ACL，只保留本用户、SYSTEM 和 Administrators 的访问权限。符号链接或重解析点不作为缓存。
+
+Swagger 不可用时，`doctor` 可能通过基础读取并报告 `schema_source = "compatibility"`、`schema_verified = false`；这不表示所有接口可用，写入保持禁用。`trust_env` 仍默认关闭，需要代理时由用户明确启用并在启动客户端的环境中配置代理。

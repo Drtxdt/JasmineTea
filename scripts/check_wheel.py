@@ -10,7 +10,8 @@ from pathlib import Path
 
 def main():
     root = Path(__file__).resolve().parents[1]
-    wheels = list((root / "dist").glob("jasminetea_mcp-*.whl"))
+    from jasminetea_mcp import __version__
+    wheels = list((root / "dist").glob(f"jasminetea_mcp-{__version__}-*.whl"))
     if len(wheels) != 1:
         raise SystemExit("Expected exactly one wheel in dist; build it first.")
     environment = dict(os.environ)
@@ -31,6 +32,7 @@ def main():
              "import json,sys; from pathlib import Path; import jasminetea_mcp as m; "
              "assert Path(m.__file__).resolve().is_relative_to(Path(sys.prefix).resolve()); "
              "assert len(json.loads(Path(m.__file__).with_name('parity.json').read_text(encoding='utf-8')))==89; "
+             "assert '/user' in json.loads(Path(m.__file__).with_name('basic-read-schema.json').read_text(encoding='utf-8'))['paths']; "
              "print('Installed wheel:', m.__version__)"],
             cwd=workspace, env=environment, check=True,
         )

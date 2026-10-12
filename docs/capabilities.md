@@ -20,7 +20,7 @@ Git 行为由 `tests/test_git.py` 的真实 bare 仓库测试验证；MCP 由 `t
 | `compare_commits` | Git | `compare_commits` | available | Snapshot comparison by default; optional merge-base comparison reports the actual base SHA. |
 | `convert_pull_request_to_draft` | 平台缺失 | — | unsupported | No native draft lifecycle API; editing WIP titles is not presented as an equivalent draft operation. |
 | `create_blob` | Git | `create_blob` | available | Objects live in the isolated local bare cache until update_ref publishes a reachable commit. |
-| `create_branch` | 等价映射 | `create_branch` | available | Gitea branch API with Git fallback for local commit objects. |
+| `create_branch` | 等价映射 | `create_branch` | available | API 创建分支；完整 SHA、跨 ref 或接口字段不足时使用 Git 和创建 lease。 |
 | `create_commit` | Git | `create_commit` | available | Author and committer fixed to authenticated login; local until published. |
 | `create_file` | API | `create_file` | available | Native Gitea REST operation; platform permissions apply. |
 | `create_issue` | API | `create_issue` | available | Native Gitea REST operation; platform permissions apply. |

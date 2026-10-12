@@ -1,9 +1,12 @@
 import subprocess
+from functools import wraps
 
 import pytest
 
 from jasminetea_mcp.errors import TeaError
 from jasminetea_mcp.git_backend import GitBackend
+from jasminetea_mcp.policy import WritePermit, permitted
+from jasminetea_mcp.profiles import BRANCH_WRITES
 
 
 def git(*args, cwd=None):
@@ -26,6 +29,18 @@ def local_git(tmp_path, settings):
     git("clone", "--bare", "--no-hardlinks", str(work), str(remote))
     backend = GitBackend(settings)
     backend._remote_url = lambda repo: str(remote)
+    # Raw Git tests explicitly supply write permits; policy tests use an unwrapped backend.
+    for operation in ("create_blob", "create_tree", "create_commit", "update_ref",
+                      "create_branch", "delete_branch", "commit_files"):
+        method = getattr(backend, operation)
+        def wrap(method, operation):
+            @wraps(method)
+            def call(repo, *args, **kwargs):
+                branch = (args[0] if args else kwargs.get("branch")) if operation in BRANCH_WRITES else None
+                with permitted(WritePermit(id(settings), repo, operation, branch)):
+                    return method(repo, *args, **kwargs)
+            return call
+        setattr(backend, operation, wrap(method, operation))
     return backend, remote, initial
 
 

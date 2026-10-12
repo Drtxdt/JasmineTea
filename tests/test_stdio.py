@@ -55,7 +55,7 @@ async def test_real_stdio_process_read_write_and_denial(tmp_path, schema, mode):
     thread.start()
     config = tmp_path / "stdio.toml"
     config.write_text(
-        f'base_url = "http://127.0.0.1:{http.server_port}"\nwrite_repositories = ["owner/repo"]\n',
+        f'base_url = "http://127.0.0.1:{http.server_port}"\nwrite_repositories = ["owner/repo"]\ntool_profile = "full"\n',
         encoding="utf-8",
     )
     params = StdioServerParameters(
@@ -66,7 +66,7 @@ async def test_real_stdio_process_read_write_and_denial(tmp_path, schema, mode):
     try:
         async with Client(params, mode=mode, read_timeout_seconds=15) as client:
             listed = await client.list_tools()
-            assert len(listed.tools) >= 50
+            assert len(listed.tools) == 44
             capabilities = await client.call_tool("get_capabilities", {})
             assert not capabilities.is_error and len(capabilities.structured_content["capabilities"]) == 89
             read = await client.call_tool(

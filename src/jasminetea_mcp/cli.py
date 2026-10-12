@@ -7,6 +7,7 @@ from pathlib import Path
 from pydantic import ValidationError
 
 from . import __version__
+from .cache_security import private_path
 from .config import NETWORK_ENV_VARS, load_settings
 from .errors import TeaError
 from .service import TeaService
@@ -37,7 +38,7 @@ def client_example(client: str, config: str | None = None) -> str:
             + json.dumps(sys.executable)
             + "\nargs = "
             + json.dumps(args)
-            + "\nenv_vars = "
+            + "\ntool_timeout_sec = 300\nenv_vars = "
             + json.dumps(forwarded)
             + "\n"
         )
@@ -48,6 +49,7 @@ def client_example(client: str, config: str | None = None) -> str:
                     "mcpServers": {
                         "jasminetea": {
                             "type": "stdio",
+                            "timeout": 300000,
                             "command": sys.executable,
                             "args": args,
                             "env": {name: "${" + name + ":-}" for name in forwarded},
@@ -59,9 +61,30 @@ def client_example(client: str, config: str | None = None) -> str:
             )
             + "\n"
         )
+    if client == "kimi":
+        return (
+            json.dumps(
+                {
+                    "mcpServers": {
+                        "jasminetea": {
+                            "transport": "stdio",
+                            "command": sys.executable,
+                            "args": args,
+                            "cwd": str(Path(config).parent if config else Path.cwd()),
+                            "toolTimeoutMs": 300000,
+                        }
+                    }
+                },
+                ensure_ascii=False,
+                indent=2,
+            )
+            + "\n"
+        )
+    if client != "deepseek":
+        raise ValueError("Unknown client")
     return (
         "- insert:\n    - id: jasminetea-mcp\n      name: '@deepseek-ai/dsh-mcp-client'\n"
-        "      config:\n        serverName: jasminetea\n        transport: stdio\n"
+        "      config:\n        serverName: jasminetea\n        transport: stdio\n        toolCallTimeoutMs: 300000\n"
         "        command: "
         + json.dumps(sys.executable)
         + "\n        args: "
@@ -81,6 +104,11 @@ async def diagnose(service: TeaService, repo: str | None) -> dict:
     }
     try:
         report["capabilities"] = await service.get_capabilities()
+        try:
+            private_path(service.settings.cache_dir)
+            report["checks"]["cache_security"] = {"ok": True}
+        except TeaError as error:
+            report["checks"]["cache_security"] = {"ok": False, **error.as_dict()}
         try:
             user = await service.get_profile()
             report["checks"]["authentication"] = {"ok": True, "login": user.get("login")}
@@ -104,9 +132,9 @@ async def diagnose(service: TeaService, repo: str | None) -> dict:
                         report["checks"]["git_access"] = {"ok": False, **error.as_dict()}
             except TeaError as error:
                 report["checks"]["repository"] = {"ok": False, **error.as_dict()}
-        report["ok"] = (
-            all(c["ok"] for c in report["checks"].values()) and report["capabilities"]["schema_verified"]
-        )
+        report["ok"] = all(c["ok"] for c in report["checks"].values()) and report["capabilities"].get(
+            "schema_source"
+        ) in ("live", "compatibility")
         return report
     finally:
         await service.close()
@@ -122,7 +150,7 @@ def main() -> None:
         if name == "doctor":
             item.add_argument("--repo")
     example = sub.add_parser("config-example")
-    example.add_argument("--client", required=True, choices=["codex", "deepseek", "claude"])
+    example.add_argument("--client", required=True, choices=["codex", "deepseek", "claude", "kimi"])
     example.add_argument("--config")
     args = parser.parse_args()
     try:

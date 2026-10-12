@@ -14,7 +14,7 @@ REPO = "hndx202426010302/JasmineTea-test"
 
 
 async def run():
-    config = Path("examples/test-repository.toml").resolve()
+    config = Path("examples/acceptance.toml").resolve()
     settings = load_settings(str(config))
     if settings.base_url != "https://bdgit.educoder.net":
         raise ValueError("Live acceptance is restricted to the supplied bdgit test instance.")
@@ -25,7 +25,7 @@ async def run():
         env={"PYTHONUTF8": "1"},
     )
     report = {"checks": [], "passed": False}
-    async with Client(params, mode="legacy", read_timeout_seconds=60) as client:
+    async with Client(params, mode="legacy", read_timeout_seconds=300) as client:
         async def call(name, arguments):
             result = await client.call_tool(name, arguments)
             if result.is_error:

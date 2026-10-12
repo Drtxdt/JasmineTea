@@ -2,12 +2,14 @@ import asyncio
 import json
 import re
 import ssl
-from urllib.parse import unquote, urlsplit
+from importlib.resources import files
+from urllib.parse import parse_qs, unquote, urljoin, urlsplit
 
 import httpx
 
 from .config import Settings, repository
 from .errors import TeaError
+from .policy import api_path_pattern
 
 
 class GiteaClient:
@@ -15,14 +17,22 @@ class GiteaClient:
         self.settings = settings
         network = settings.network_environment()
         verify = (
-            ssl.create_default_context(cafile=network.get("SSL_CERT_FILE"), capath=network.get("SSL_CERT_DIR"))
-            if network.get("SSL_CERT_FILE") or network.get("SSL_CERT_DIR") else True
+            ssl.create_default_context(
+                cafile=network.get("SSL_CERT_FILE"), capath=network.get("SSL_CERT_DIR")
+            )
+            if network.get("SSL_CERT_FILE") or network.get("SSL_CERT_DIR")
+            else True
         )
         self.http = httpx.AsyncClient(
-            transport=transport, timeout=settings.timeout_seconds, follow_redirects=False, trust_env=False,
-            proxy=settings.environment_proxy(), verify=verify,
+            transport=transport,
+            timeout=settings.timeout_seconds,
+            follow_redirects=False,
+            trust_env=False,
+            proxy=settings.environment_proxy(),
+            verify=verify,
         )
         self.schema: dict | None = None
+        self.schema_source = "live"
 
     async def close(self) -> None:
         await self.http.aclose()
@@ -37,8 +47,17 @@ class GiteaClient:
         body: dict | None = None,
         text: bool = False,
         swagger: bool = False,
+        with_headers: bool = False,
     ):
         method = method.upper()
+        decoded = unquote(endpoint)
+        if (
+            urlsplit(endpoint).query
+            or urlsplit(endpoint).fragment
+            or any(p in (".", "..") for p in decoded.split("/"))
+            or any(c in decoded for c in "\\\x00\r\n")
+        ):
+            raise TeaError("invalid_input", "Invalid API endpoint path.")
         writing = method != "GET"
         if writing:
             if repo is None:
@@ -52,12 +71,23 @@ class GiteaClient:
                 raise TeaError(
                     "write_disabled", "Mutation endpoint does not match the authorized repository."
                 )
+            from .policy import require_permit
+
+            permit = require_permit(self.settings, repo, endpoint=endpoint, method=method)
+            if permit.branch is not None:
+                key = "new_branch_name" if permit.operation == "create_branch" else "branch"
+                require_permit(self.settings, repo, branch=(body or {}).get(key, ""))
+            if self.schema_source != "live":
+                raise TeaError("write_disabled", "Compatibility mode is read-only.")
+        elif self.schema_source == "compatibility" and not swagger:
+            if not self._read_advertised(endpoint):
+                raise TeaError("unsupported", "Endpoint is outside the tested basic-read compatibility set.")
         if not endpoint.startswith("/") or endpoint.startswith("//") or urlsplit(endpoint).scheme:
             raise TeaError("invalid_input", "Expected an API path, not an external URL.")
         url = self.settings.base_url + ("" if swagger else "/api/v1") + endpoint
         headers = {
             "Accept": "text/plain" if text else "application/json",
-            "User-Agent": "jasminetea-mcp/0.2.0",
+            "User-Agent": "jasminetea-mcp/0.3.0",
         }
         token = "" if swagger else self.settings.token()
         if token:
@@ -119,14 +149,17 @@ class GiteaClient:
                             uncertain=writing and response.status_code >= 500,
                         )
                     if not data:
-                        return "" if text else None
+                        value = "" if text else None
+                        return (value, dict(response.headers)) if with_headers else value
                     if text:
                         try:
-                            return data.decode("utf-8")
+                            value = data.decode("utf-8")
+                            return (value, dict(response.headers)) if with_headers else value
                         except UnicodeDecodeError:
                             raise TeaError("binary_content", "This response is not UTF-8 text.") from None
                     try:
-                        return json.loads(data)
+                        value = json.loads(data)
+                        return (value, dict(response.headers)) if with_headers else value
                     except ValueError:
                         raise TeaError(
                             "invalid_response", "Expected JSON from the platform.", uncertain=writing
@@ -146,32 +179,100 @@ class GiteaClient:
         if page < 1 or not 1 <= limit <= 100:
             raise TeaError("invalid_input", "page must be positive and limit must be between 1 and 100.")
         schema = await self.swagger()
-        operation = next((item.get("get", {}) for path, item in schema["paths"].items()
-                          if re.fullmatch(re.sub(r"\\\{[^}]+\\\}", "[^/]+", re.escape(path)), endpoint)), {})
+        operation = next(
+            (
+                item.get("get", {})
+                for path, item in schema["paths"].items()
+                if re.fullmatch(api_path_pattern(path), endpoint)
+            ),
+            {},
+        )
         query_names = {p["name"] for p in operation.get("parameters", []) if p.get("in") == "query"}
         paginated = {"page", "limit"} <= query_names
         query = dict(params or {})
         if paginated:
             query.update(page=page, limit=limit)
-        data = await self.request("GET", endpoint, params=query)
+        data, headers = await self.request("GET", endpoint, params=query, with_headers=True)
         items = data.get("data", []) if isinstance(data, dict) and "data" in data else data
-        next_page = page + 1 if isinstance(items, list) and len(items) == limit else None
-        if not paginated and isinstance(items, list):
+        if not isinstance(items, list):
+            raise TeaError("invalid_response", "Expected a list from a paginated endpoint.")
+        total = headers.get("x-total-count", "")
+        total = int(total) if total.isdigit() else None
+        next_page, next_limit, source = (page + 1 if items else None), limit, "conservative"
+        if not paginated:
+            total = len(items)
             start = (page - 1) * limit
-            next_page = page + 1 if start + limit < len(items) else None
-            items = items[start:start + limit]
+            next_page = page + 1 if start + limit < total else None
+            items, source = items[start : start + limit], "local"
+        else:
+            links = []
+            origin = self.settings.base_url + "/api/v1" + endpoint
+            for link in httpx.Response(200, headers=headers).links.values():
+                target = urlsplit(urljoin(origin, link.get("url", "")))
+                current = urlsplit(origin)
+                values = parse_qs(target.query)
+                if (target.scheme, target.netloc, target.path) != (
+                    current.scheme,
+                    current.netloc,
+                    current.path,
+                ):
+                    continue
+                if target.username or target.password or target.fragment:
+                    continue
+                if any(values.get(k) != [str(v)] for k, v in query.items() if k not in ("page", "limit")):
+                    continue
+                if set(values) - set(query) - {"page", "limit"}:
+                    continue
+                try:
+                    number = int(values["page"][0])
+                    size = int(values.get("limit", [str(limit)])[0])
+                except (ValueError, KeyError, IndexError):
+                    continue
+                if number < 1 or not 1 <= size <= 100:
+                    continue
+                links.append((link.get("rel"), number, size))
+            if links:
+                source, next_page = "link", None
+                for rel, number, size in links:
+                    if rel == "next" and number > page:
+                        next_page, next_limit = number, size
+                        break
         return {
             "items": items,
             "page": page,
             "limit": limit,
             "next_page": next_page,
+            "next_limit": next_limit if next_page else None,
+            "total_count": total,
+            "pagination_source": source,
+            "pagination_verified": source != "conservative",
         }
+
+    def _read_advertised(self, endpoint: str) -> bool:
+        return any(
+            re.fullmatch(api_path_pattern(path), endpoint) and "get" in operation
+            for path, operation in self.schema["paths"].items()
+        )
 
     async def swagger(self) -> dict:
         if self.schema is None:
-            data = await self.request("GET", "/swagger.v1.json", swagger=True)
-            if not isinstance(data, dict) or not isinstance(data.get("paths"), dict):
-                raise TeaError("invalid_response", "Invalid Gitea API definition.")
+            try:
+                data = await self.request("GET", "/swagger.v1.json", swagger=True)
+                if not isinstance(data, dict) or not isinstance(data.get("paths"), dict):
+                    raise TeaError("invalid_response", "Invalid Gitea API definition.")
+                self.schema_source = "live"
+            except TeaError:
+                self.schema_source = "unavailable"
+                version = await self.request("GET", "/version")
+                if (
+                    not isinstance(version, dict)
+                    or not isinstance(version.get("version"), str)
+                    or not version["version"].strip()
+                    or len(version["version"]) > 100
+                ):
+                    raise TeaError("unsupported", "Cannot establish basic Gitea compatibility.") from None
+                data = json.loads(files("jasminetea_mcp").joinpath("basic-read-schema.json").read_text())
+                self.schema_source = "compatibility"
             self.schema = data
         return self.schema
 
